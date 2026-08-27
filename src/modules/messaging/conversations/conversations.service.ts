@@ -308,6 +308,17 @@ export class ConversationsService {
       }
     }
 
+    // Conversas fixadas do usuário já são mostradas à parte, na seção
+    // "Fixadas" (findPinnedInbox) — excluídas daqui pra não duplicar. Só se
+    // aplica na inbox padrão: não em filtro "Arquivadas" (a conversa fixada
+    // e arquivada continua listada ali, sem elevação) nem em views de
+    // grupo/segmento/projeto (essas não têm seção de fixadas no frontend —
+    // excluir aqui faria a conversa sumir sem aparecer em lugar nenhum).
+    const pinnedIds =
+      currentUserId && filters.archived !== 'only' && !isGroupResolved
+        ? await this.repository.listPinnedIds(currentUserId)
+        : [];
+
     const inboxFilters: InboxFilters = {
       organizationId,
       status: parsedStatuses?.length ? parsedStatuses : undefined,
@@ -324,6 +335,7 @@ export class ConversationsService {
       archived: filters.archived,
       unreadOnly: filters.unreadOnly,
       stuckOnly: filters.stuckOnly,
+      excludeConversationIds: pinnedIds.length ? pinnedIds : undefined,
     };
 
     const skip = (page - 1) * limit;
@@ -851,6 +863,97 @@ export class ConversationsService {
     });
 
     return { ok: true, unreadCount: result.unreadCount };
+  }
+
+  /** Teto de conversas fixadas por usuário — `findPinnedInbox` não pagina. */
+  private static readonly MAX_PINNED_PER_USER = 50;
+
+  /**
+   * Fixa uma conversa pro usuário atual (per-user — não afeta o que os
+   * colegas veem, diferente de `setArchived`). Sem audit log e sem
+   * `broadcastUpdate`, mesmo padrão de `markAsRead`/`markAsUnread`: é uma
+   * preferência pessoal de baixo sinal, não um evento organizacional.
+   */
+  async pin(
+    id: string,
+    organizationId: string,
+    userId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    await this.findOne(id, organizationId, access);
+    const already = await this.repository.isPinned(userId, id);
+    if (!already) {
+      const count = await this.repository.countPinned(userId);
+      if (count >= ConversationsService.MAX_PINNED_PER_USER) {
+        throw new BadRequestException(
+          `Limite de ${ConversationsService.MAX_PINNED_PER_USER} conversas fixadas atingido. Desfixe alguma antes de continuar.`,
+        );
+      }
+    }
+    await this.repository.pin(userId, id);
+    this.realtimeGateway.emitToUser(userId, 'conversation:pin-updated', {
+      conversationId: id,
+      pinned: true,
+    });
+    return { ok: true, pinned: true };
+  }
+
+  async unpin(
+    id: string,
+    organizationId: string,
+    userId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    await this.findOne(id, organizationId, access);
+    await this.repository.unpin(userId, id);
+    this.realtimeGateway.emitToUser(userId, 'conversation:pin-updated', {
+      conversationId: id,
+      pinned: false,
+    });
+    return { ok: true, pinned: false };
+  }
+
+  /**
+   * Conversas fixadas pelo usuário atual — seção não-paginada mostrada acima
+   * da lista principal. `archived: 'exclude'` é fixo: arquivar vence sobre
+   * fixar, então a seção fixa só existe na inbox padrão (o registro de pin
+   * continua existindo, só fica inerte enquanto a conversa está arquivada).
+   */
+  async findPinnedInbox(
+    organizationId: string,
+    filters: {
+      channelId?: string;
+      kind?: 'INDIVIDUAL' | 'GROUP';
+      tagIds?: string[];
+      assignedToId?: string;
+      search?: string;
+      unreadOnly?: boolean;
+    },
+    access: ChannelAccess = 'ALL',
+    currentUserId: string,
+  ) {
+    const pinnedIds = await this.repository.listPinnedIds(currentUserId);
+    if (pinnedIds.length === 0) return { conversations: [] };
+
+    const inboxFilters: InboxFilters = {
+      organizationId,
+      channelId: filters.channelId,
+      kind: filters.kind,
+      tagIds: filters.tagIds,
+      assignedToId: filters.assignedToId,
+      search: filters.search,
+      accessibleChannelIds: access === 'ALL' ? undefined : [...access],
+      unreadOnly: filters.unreadOnly,
+      archived: 'exclude',
+    };
+
+    const conversations = await this.repository.findPinned(
+      inboxFilters,
+      pinnedIds,
+      currentUserId,
+    );
+    await this.attachProjects(organizationId, conversations as any[]);
+    return { conversations };
   }
 
   /**

@@ -156,6 +156,74 @@ export class ConversationsController {
     return this.service.setArchived(id, orgId, false, userId, access);
   }
 
+  @Post(':id/pin')
+  @ApiOperation({
+    summary:
+      'Pin a conversation for the current user (per-user — does not affect what other agents see)',
+  })
+  pin(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.pin(id, orgId, userId, access);
+  }
+
+  @Post(':id/unpin')
+  @ApiOperation({ summary: 'Unpin a conversation for the current user' })
+  unpin(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.unpin(id, orgId, userId, access);
+  }
+
+  @Get('pinned')
+  @ApiOperation({
+    summary:
+      "List the current user's pinned conversations (not paginated — bounded by the per-user pin cap)",
+  })
+  @ApiQuery({ name: 'channelId', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'groups', required: false })
+  @ApiQuery({ name: 'tagIds', required: false })
+  @ApiQuery({ name: 'assignedToId', required: false })
+  @ApiQuery({ name: 'unread', required: false })
+  findPinned(
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+    @Query('channelId') channelId?: string,
+    @Query('search') search?: string,
+    @Query('groups') groups?: string,
+    @Query('tagIds') tagIds?: string,
+    @Query('assignedToId') assignedToId?: string,
+    @Query('unread') unread?: string,
+  ) {
+    const kind: 'INDIVIDUAL' | 'GROUP' | undefined =
+      groups === 'exclude' ? 'INDIVIDUAL' : groups === 'only' ? 'GROUP' : undefined;
+    const parsedTagIds = tagIds
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return this.service.findPinnedInbox(
+      orgId,
+      {
+        channelId,
+        kind,
+        tagIds: parsedTagIds?.length ? parsedTagIds : undefined,
+        assignedToId,
+        search,
+        unreadOnly: unread === 'true' || unread === '1',
+      },
+      access,
+      userId,
+    );
+  }
+
   @Post(':id/read')
   @ApiOperation({ summary: 'Mark conversation as read for current user' })
   markAsRead(

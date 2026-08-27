@@ -40,26 +40,101 @@ export interface InboxFilters {
    * filtro/widget do dashboard.
    */
   stuckOnly?: boolean;
+  /**
+   * Ids a excluir do resultado — usado pelo `findInbox` pra tirar da lista
+   * paginada as conversas que já aparecem na seção "Fixadas" (per-user),
+   * evitando duplicação entre as duas queries.
+   */
+  excludeConversationIds?: string[];
 }
 
 @Injectable()
 export class ConversationsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findInbox(
+  private readonly listInclude: Prisma.ConversationInclude = {
+    contact: {
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        avatarUrl: true,
+        tags: { include: { tag: true } },
+        // Canais do contato → deriva o JID do grupo p/ anexar o Projeto.
+        channels: { select: { channelId: true, externalId: true } },
+      },
+    },
+    channel: {
+      select: { id: true, type: true, name: true },
+    },
+    assignedTo: {
+      select: { id: true, name: true, avatarUrl: true },
+    },
+    messages: {
+      orderBy: { createdAt: 'desc' },
+      take: 1,
+      select: {
+        id: true,
+        type: true,
+        content: true,
+        direction: true,
+        createdAt: true,
+      },
+    },
+    tags: { include: { tag: true } },
+    _count: { select: { messages: true } },
+  };
+
+  /**
+   * Cruza um `where.id` que já possa existir (ex.: de `conversationIds` ou
+   * do filtro `unreadOnly`) com uma nova lista de ids, em modo interseção
+   * ('in') ou exclusão ('notIn'). Generaliza o cruzamento que o filtro
+   * `unreadOnly` já precisava fazer sozinho, e é reaproveitado pra: excluir
+   * da lista paginada as conversas fixadas (notIn) e restringir a query de
+   * fixadas ao conjunto pinnedIds (in).
+   */
+  private foldIdConstraint(
+    where: Prisma.ConversationWhereInput,
+    ids: string[],
+    mode: 'in' | 'notIn',
+  ): Prisma.ConversationWhereInput {
+    const existing =
+      where.id && typeof where.id === 'object' && 'in' in where.id
+        ? (where.id as { in: string[] }).in
+        : null;
+    if (mode === 'in') {
+      return {
+        ...where,
+        id: { in: existing ? existing.filter((id) => ids.includes(id)) : ids },
+      };
+    }
+    return {
+      ...where,
+      id: existing
+        ? { in: existing.filter((id) => !ids.includes(id)) }
+        : { notIn: ids },
+    };
+  }
+
+  /**
+   * Monta o `where` compartilhado pela lista paginada (findInbox) e pela
+   * seção de fixadas (findPinned) — os dois precisam respeitar exatamente
+   * os mesmos filtros (busca, canal, tags, grupos, não lidas) pra não
+   * divergir. `null` significa "resultado vazio", equivalente aos antigos
+   * `return { conversations: [], total: 0 }` espalhados pelo método.
+   */
+  private async resolveWhere(
     filters: InboxFilters,
-    skip: number,
-    take: number,
     currentUserId?: string,
-  ) {
+  ): Promise<Prisma.ConversationWhereInput | null> {
     if (
       filters.accessibleChannelIds !== undefined &&
       filters.accessibleChannelIds.length === 0
     ) {
-      return { conversations: [], total: 0 };
+      return null;
     }
 
-    const where: Prisma.ConversationWhereInput = {
+    let where: Prisma.ConversationWhereInput = {
       organizationId: filters.organizationId,
       // Hide conversations from soft-deleted channels. ChannelsRepository.softDelete
       // already flags both the channel and its conversations as deleted, but the
@@ -98,7 +173,7 @@ export class ConversationsRepository {
         const allowed = requested.filter((id) =>
           filters.accessibleChannelIds!.includes(id),
         );
-        if (allowed.length === 0) return { conversations: [], total: 0 };
+        if (allowed.length === 0) return null;
         where.channelId = allowed.length === 1 ? allowed[0] : { in: allowed };
       } else {
         where.channelId = { in: filters.accessibleChannelIds };
@@ -109,7 +184,7 @@ export class ConversationsRepository {
     }
     if (filters.conversationIds !== undefined) {
       if (filters.conversationIds.length === 0) {
-        return { conversations: [], total: 0 };
+        return null;
       }
       where.id = { in: filters.conversationIds };
     }
@@ -175,63 +250,38 @@ export class ConversationsRepository {
           AND (lo.last_outbound_at IS NULL OR m.created_at > lo.last_outbound_at)
       `;
       const unreadIds = rows.map((r) => r.conversation_id);
-      if (unreadIds.length === 0) return { conversations: [], total: 0 };
-      // Intersect with any pre-existing id constraint (from conversationIds).
-      if (
-        where.id &&
-        typeof where.id === 'object' &&
-        'in' in where.id &&
-        Array.isArray((where.id as { in: string[] }).in)
-      ) {
-        const existing = (where.id as { in: string[] }).in;
-        const intersect = existing.filter((id) => unreadIds.includes(id));
-        if (intersect.length === 0) return { conversations: [], total: 0 };
-        where.id = { in: intersect };
-      } else {
-        where.id = { in: unreadIds };
-      }
+      if (unreadIds.length === 0) return null;
+      where = this.foldIdConstraint(where, unreadIds, 'in');
+      if ((where.id as { in: string[] }).in.length === 0) return null;
     }
+
+    return where;
+  }
+
+  async findInbox(
+    filters: InboxFilters,
+    skip: number,
+    take: number,
+    currentUserId?: string,
+  ) {
+    const where = await this.resolveWhere(filters, currentUserId);
+    if (where === null) return { conversations: [], total: 0 };
+
+    // A seção "Fixadas" (findPinned) já mostra essas conversas fora da
+    // paginação — exclui daqui pra não duplicar.
+    const finalWhere = filters.excludeConversationIds?.length
+      ? this.foldIdConstraint(where, filters.excludeConversationIds, 'notIn')
+      : where;
 
     const [conversations, total] = await this.prisma.$transaction([
       this.prisma.conversation.findMany({
-        where,
-        include: {
-          contact: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-              avatarUrl: true,
-              tags: { include: { tag: true } },
-              // Canais do contato → deriva o JID do grupo p/ anexar o Projeto.
-              channels: { select: { channelId: true, externalId: true } },
-            },
-          },
-          channel: {
-            select: { id: true, type: true, name: true },
-          },
-          assignedTo: {
-            select: { id: true, name: true, avatarUrl: true },
-          },
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: {
-              id: true,
-              type: true,
-              content: true,
-              direction: true,
-              createdAt: true,
-            },
-          },
-          tags: { include: { tag: true } },
-          _count: { select: { messages: true } },
-        },
+        where: finalWhere,
+        include: this.listInclude,
         orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
         skip,
         take,
       }),
-      this.prisma.conversation.count({ where }),
+      this.prisma.conversation.count({ where: finalWhere }),
     ]);
 
     // Per-user unread counters. Caller passes currentUserId; the user's
@@ -243,6 +293,37 @@ export class ConversationsRepository {
       : conversations.map((c) => ({ ...c, unreadCount: 0 }));
 
     return { conversations: enriched, total };
+  }
+
+  /**
+   * Conversas fixadas pelo usuário atual (per-user, tabela `ConversationPin`)
+   * que ainda batem com os filtros correntes da inbox. Não paginado — pin é
+   * limitado a `ConversationsService.MAX_PINNED_PER_USER` (hoje 50), então
+   * cabe inteiro numa única query. Quem chama (`ConversationsService.
+   * findPinnedInbox`) sempre passa `archived: 'exclude'`.
+   */
+  async findPinned(
+    filters: InboxFilters,
+    pinnedIds: string[],
+    currentUserId?: string,
+  ) {
+    if (pinnedIds.length === 0) return [];
+    const where = await this.resolveWhere(filters, currentUserId);
+    if (where === null) return [];
+    const finalWhere = this.foldIdConstraint(where, pinnedIds, 'in');
+
+    const rows = await this.prisma.conversation.findMany({
+      where: finalWhere,
+      include: this.listInclude,
+      orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+      take: 200,
+    });
+
+    const enriched = currentUserId
+      ? await this.attachUnreadCounts(rows, currentUserId)
+      : rows.map((c) => ({ ...c, unreadCount: 0 }));
+
+    return enriched.map((c) => ({ ...c, isPinnedByMe: true }));
   }
 
   private async attachUnreadCounts<
@@ -357,6 +438,38 @@ export class ConversationsRepository {
     });
 
     return { lastReadAt: newLastReadAt, unreadCount };
+  }
+
+  async isPinned(userId: string, conversationId: string): Promise<boolean> {
+    const row = await this.prisma.conversationPin.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
+  async countPinned(userId: string): Promise<number> {
+    return this.prisma.conversationPin.count({ where: { userId } });
+  }
+
+  async pin(userId: string, conversationId: string) {
+    return this.prisma.conversationPin.upsert({
+      where: { userId_conversationId: { userId, conversationId } },
+      create: { userId, conversationId },
+      update: {}, // já fixada — idempotente, mantém o pinnedAt original
+    });
+  }
+
+  async unpin(userId: string, conversationId: string): Promise<void> {
+    await this.prisma.conversationPin.deleteMany({ where: { userId, conversationId } });
+  }
+
+  async listPinnedIds(userId: string): Promise<string[]> {
+    const rows = await this.prisma.conversationPin.findMany({
+      where: { userId },
+      select: { conversationId: true },
+    });
+    return rows.map((r) => r.conversationId);
   }
 
   async findById(id: string) {
