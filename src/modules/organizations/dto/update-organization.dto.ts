@@ -18,10 +18,17 @@ export class UpdateOrganizationDto {
   @MaxLength(120)
   name?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Logo da marca (URL ou data URL). White-label.' })
   @IsOptional()
   @IsString()
+  @MaxLength(600000)
   logoUrl?: string;
+
+  @ApiPropertyOptional({ example: '#4f46e5', description: 'Cor primária da marca em hex. White-label.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  primaryColor?: string;
 
   // ─── AI settings ────────────────────────────────────────────────
 

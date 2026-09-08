@@ -25,16 +25,34 @@ export class OrganizationsService {
   }
 
   async updateOrganization(orgId: string, dto: UpdateOrganizationDto) {
-    await this.getOrganization(orgId);
+    const current = await this.getOrganization(orgId);
     const {
       aiBusinessHours,
       watchdogBusinessHours,
       watchdogConfig,
       allowedUrlDomains,
+      primaryColor,
       ...rest
     } = dto;
+    // White-label: a cor da marca não tem coluna própria — mora em
+    // settings.branding.primaryColor (JSON), mesclado sem perder o resto.
+    const settingsUpdate =
+      primaryColor !== undefined
+        ? (() => {
+            const settings =
+              (current.settings as Record<string, unknown> | null) ?? {};
+            const branding = {
+              ...((settings.branding as Record<string, unknown>) ?? {}),
+              primaryColor,
+            };
+            return {
+              settings: { ...settings, branding } as Prisma.InputJsonValue,
+            };
+          })()
+        : {};
     return this.repository.update(orgId, {
       ...rest,
+      ...settingsUpdate,
       ...(aiBusinessHours !== undefined
         ? { aiBusinessHours: aiBusinessHours as object }
         : {}),

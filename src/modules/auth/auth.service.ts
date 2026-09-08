@@ -110,6 +110,11 @@ export class AuthService {
         id: result.organization.id,
         name: result.organization.name,
         slug: result.organization.slug,
+        logoUrl: result.organization.logoUrl ?? null,
+        primaryColor:
+          ((result.organization.settings as {
+            branding?: { primaryColor?: string };
+          } | null)?.branding?.primaryColor) ?? null,
         role: 'OWNER',
         accessibleChannelIds: 'ALL' as const,
       }],
@@ -198,6 +203,11 @@ export class AuthService {
         id: result.organization.id,
         name: result.organization.name,
         slug: result.organization.slug,
+        logoUrl: result.organization.logoUrl ?? null,
+        primaryColor:
+          ((result.organization.settings as {
+            branding?: { primaryColor?: string };
+          } | null)?.branding?.primaryColor) ?? null,
         role: invitation.role,
         // New invited members start with no channel grants (deny-by-default).
         // OWNER/ADMIN bypass; AGENT must be explicitly granted by an admin.
@@ -247,6 +257,11 @@ export class AuthService {
         id: m.organization.id,
         name: m.organization.name,
         slug: m.organization.slug,
+        logoUrl: m.organization.logoUrl ?? null,
+        primaryColor:
+          ((m.organization.settings as {
+            branding?: { primaryColor?: string };
+          } | null)?.branding?.primaryColor) ?? null,
         role: m.role,
         accessibleChannelIds:
           m.role === 'OWNER' || m.role === 'ADMIN'
@@ -299,6 +314,11 @@ export class AuthService {
         id: m.organization.id,
         name: m.organization.name,
         slug: m.organization.slug,
+        logoUrl: m.organization.logoUrl ?? null,
+        primaryColor:
+          ((m.organization.settings as {
+            branding?: { primaryColor?: string };
+          } | null)?.branding?.primaryColor) ?? null,
         role: m.role,
         // 'ALL' for OWNER/ADMIN — they bypass the per-channel allowlist.
         accessibleChannelIds:
