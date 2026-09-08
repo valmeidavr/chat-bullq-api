@@ -1722,3 +1722,42 @@ model AutomationRun {
   @@index([status, startedAt(sort: Desc)], name: "idx_run_status_time")
   @@map("automation_runs")
 }
+
+// ─── Templates de mensagem (WhatsApp HSM) ──────────────────────────
+// Gestão de templates + status de aprovação (Twilio Content API / Meta).
+// FKs escalares (sem @relation) de propósito, pra não alterar os modelos
+// Organization/Channel — o service filtra por organizationId.
+enum TemplateStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAUSED
+}
+
+model MessageTemplate {
+  id              String         @id @default(cuid())
+  organizationId  String         @map("organization_id")
+  channelId       String?        @map("channel_id")
+  name            String
+  language        String         @default("pt_BR")
+  /// MARKETING | UTILITY | AUTHENTICATION
+  category        String         @default("UTILITY")
+  body            String         @db.Text
+  variablesCount  Int            @default(0) @map("variables_count")
+  /// [{ type: 'QUICK_REPLY'|'URL'|'PHONE_NUMBER', text, url?, phone? }]
+  buttons         Json?
+  provider        String         @default("TWILIO")
+  /// Twilio Content SID (HXxxxx) ou id do template no provider.
+  providerSid     String?        @map("provider_sid")
+  approvalSid     String?        @map("approval_sid")
+  status          TemplateStatus @default(DRAFT)
+  rejectionReason String?        @map("rejection_reason") @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  @@index([organizationId], name: "idx_template_org")
+  @@index([organizationId, status], name: "idx_template_org_status")
+  @@map("message_templates")
+}
