@@ -11,6 +11,10 @@ import { MenuNodeExecutor } from './engine/node-executors/menu-node.executor';
 import { ConditionNodeExecutor } from './engine/node-executors/condition-node.executor';
 import { WaitNodeExecutor } from './engine/node-executors/wait-node.executor';
 import { TransferNodeExecutor } from './engine/node-executors/transfer-node.executor';
+import { QuestionNodeExecutor } from './engine/node-executors/question-node.executor';
+import { HttpRequestNodeExecutor } from './engine/node-executors/http-request-node.executor';
+import { AiNodeExecutor } from './engine/node-executors/ai-node.executor';
+import { LlmModule } from '../ai-agents/llm/llm.module';
 
 @Module({
   imports: [
@@ -18,6 +22,7 @@ import { TransferNodeExecutor } from './engine/node-executors/transfer-node.exec
       { name: 'chatbot-processor' },
       { name: 'outbound-messages' },
     ),
+    LlmModule,
   ],
   controllers: [ChatbotFlowsController],
   providers: [
@@ -31,6 +36,9 @@ import { TransferNodeExecutor } from './engine/node-executors/transfer-node.exec
     ConditionNodeExecutor,
     WaitNodeExecutor,
     TransferNodeExecutor,
+    QuestionNodeExecutor,
+    HttpRequestNodeExecutor,
+    AiNodeExecutor,
   ],
   exports: [ChatbotFlowsService, ChatbotFlowsRepository, ChatbotSessionService],
 })

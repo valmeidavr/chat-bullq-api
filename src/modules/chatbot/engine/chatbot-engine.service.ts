@@ -12,6 +12,9 @@ import { MenuNodeExecutor } from './node-executors/menu-node.executor';
 import { ConditionNodeExecutor } from './node-executors/condition-node.executor';
 import { WaitNodeExecutor } from './node-executors/wait-node.executor';
 import { TransferNodeExecutor } from './node-executors/transfer-node.executor';
+import { QuestionNodeExecutor } from './node-executors/question-node.executor';
+import { HttpRequestNodeExecutor } from './node-executors/http-request-node.executor';
+import { AiNodeExecutor } from './node-executors/ai-node.executor';
 
 export interface EngineResult {
   messages: { type: string; content: Record<string, any> }[];
@@ -33,6 +36,9 @@ export class ChatbotEngineService {
     conditionExec: ConditionNodeExecutor,
     waitExec: WaitNodeExecutor,
     transferExec: TransferNodeExecutor,
+    questionExec: QuestionNodeExecutor,
+    httpExec: HttpRequestNodeExecutor,
+    aiExec: AiNodeExecutor,
   ) {
     this.executors = new Map<string, NodeExecutor>();
     this.executors.set(messageExec.nodeType, messageExec);
@@ -40,6 +46,9 @@ export class ChatbotEngineService {
     this.executors.set(conditionExec.nodeType, conditionExec);
     this.executors.set(waitExec.nodeType, waitExec);
     this.executors.set(transferExec.nodeType, transferExec);
+    this.executors.set(questionExec.nodeType, questionExec);
+    this.executors.set(httpExec.nodeType, httpExec);
+    this.executors.set(aiExec.nodeType, aiExec);
   }
 
   async processMessage(
