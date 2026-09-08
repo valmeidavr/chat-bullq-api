@@ -1,8 +1,12 @@
-/** Default Sakana model for cheap/simple background LLM tasks. */
-export const SAKANA_SIMPLE_MODEL = 'sakana/fugu';
+/**
+ * Modelo padrão para tarefas baratas/background (classificador de intenção,
+ * extração de memória, judge, roteamento primário).
+ * (nome da constante mantido por compatibilidade de imports)
+ */
+export const LLM_SIMPLE_MODEL = 'openai/gpt-4o-mini';
 
-/** Default Sakana model for customer-facing agent conversations. */
-export const SAKANA_CONVERSATION_MODEL = 'sakana/fugu-ultra-20260615';
+/** Modelo padrão para conversas voltadas ao cliente (escalonamento). */
+export const LLM_CONVERSATION_MODEL = 'openai/gpt-4o';
 
-/** Default OpenAI-compatible base URL for Sakana's API. */
-export const SAKANA_DEFAULT_BASE_URL = 'https://api.sakana.ai/v1';
+/** Base URL padrão (OpenAI). Sobrescreva com LLM_BASE_URL se precisar. */
+export const LLM_DEFAULT_BASE_URL = 'https://api.openai.com/v1';

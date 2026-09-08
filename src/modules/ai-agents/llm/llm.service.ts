@@ -17,7 +17,7 @@ import {
   LlmToolDefinition,
   LlmUsage,
 } from './llm.types';
-import { SAKANA_DEFAULT_BASE_URL } from './llm.constants';
+import { LLM_DEFAULT_BASE_URL, LLM_SIMPLE_MODEL } from './llm.constants';
 
 type OpenAiMessage = Record<string, unknown>;
 type OpenAiTool = Record<string, unknown>;
@@ -44,15 +44,19 @@ export class LlmService {
   private readonly hasApiKey: boolean;
 
   constructor(config: ConfigService) {
-    const apiKey = config.get<string>('SAKANA_API_KEY');
+    // Provider atual: OpenAI. Reutiliza OPENAI_API_KEY (mesma chave dos
+    // embeddings) quando LLM_API_KEY não estiver setada.
+    const apiKey =
+      config.get<string>('OPENAI_API_KEY') ??
+      config.get<string>('LLM_API_KEY');
     const baseURL =
-      config.get<string>('SAKANA_BASE_URL') ?? SAKANA_DEFAULT_BASE_URL;
-    const timeout = Number(config.get<string>('SAKANA_TIMEOUT_MS') ?? 120_000);
+      config.get<string>('LLM_BASE_URL') ?? LLM_DEFAULT_BASE_URL;
+    const timeout = Number(config.get<string>('LLM_TIMEOUT_MS') ?? 120_000);
 
     this.hasApiKey = !!apiKey;
     if (!apiKey) {
       this.logger.warn(
-        'SAKANA_API_KEY not set — AI agents will fail at runtime',
+        'OPENAI_API_KEY/LLM_API_KEY not set — AI agents will fail at runtime',
       );
     }
 
@@ -65,7 +69,7 @@ export class LlmService {
 
   async complete(req: LlmCompletionRequest): Promise<LlmCompletionResponse> {
     if (!this.hasApiKey) {
-      throw new InternalServerErrorException('SAKANA_API_KEY not set');
+      throw new InternalServerErrorException('LLM_API_KEY not set');
     }
 
     const modelId = this.normalizeModelId(req.modelId);
@@ -167,24 +171,24 @@ export class LlmService {
       throw new BadRequestException('modelId is required');
     }
 
+    // OpenAI é o provider atual. IDs legados/estranhos (sakana/*, fugu*,
+    // claude-*, anthropic/*, google/*) são remapeados pro modelo OpenAI
+    // simples pra não quebrar agentes antigos salvos no banco.
     if (
+      trimmed.startsWith('sakana/') ||
+      trimmed === 'fugu' ||
+      trimmed.startsWith('fugu-') ||
       trimmed.startsWith('anthropic/') ||
       trimmed.startsWith('claude-') ||
-      trimmed.startsWith('openai/') ||
       trimmed.startsWith('google/')
     ) {
-      throw new BadRequestException(
-        `Unsupported LLM model "${trimmed}". This deployment only uses Sakana models. ` +
-          'Migrate agents to sakana/fugu-ultra-20260615 or sakana/fugu.',
-      );
+      return LLM_SIMPLE_MODEL.replace(/^openai\//, '');
     }
 
-    if (trimmed.startsWith('sakana/')) return trimmed.slice('sakana/'.length);
-    if (trimmed === 'fugu' || trimmed.startsWith('fugu-')) return trimmed;
+    if (trimmed.startsWith('openai/')) return trimmed.slice('openai/'.length);
 
-    throw new BadRequestException(
-      `Unsupported Sakana model "${trimmed}". Use sakana/fugu or sakana/fugu-ultra-20260615.`,
-    );
+    // nomes diretos (ex.: gpt-4o, gpt-4o-mini) passam sem alteração
+    return trimmed;
   }
 
   /**

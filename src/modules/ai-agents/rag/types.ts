@@ -116,5 +116,5 @@ export const DEFAULT_RAG_CONFIG: RagConfig = {
   k: 5,
   minScore: 0.7,
   rerankEnabled: false,
-  rerankerModel: 'sakana/fugu',
+  rerankerModel: 'openai/gpt-4o-mini',
 };

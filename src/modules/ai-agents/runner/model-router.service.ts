@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import {
-  SAKANA_CONVERSATION_MODEL,
-  SAKANA_SIMPLE_MODEL,
+  LLM_CONVERSATION_MODEL,
+  LLM_SIMPLE_MODEL,
 } from '../llm/llm.constants';
 
 /**
@@ -65,10 +65,10 @@ export class ModelRouterService {
     // legados podem ter `modelId` antigo (ex.: "claude-sonnet-4-6") que ainda
     // não foi migrado — nesse caso a síntese cairia no Sakana de conversa em
     // vez de quebrar no provider. Mesma proteção pra overrides mal preenchidos.
-    const primary = this.toSakana(routing.primary, SAKANA_SIMPLE_MODEL);
-    const escalation = this.toSakana(
+    const primary = this.toOpenAi(routing.primary, LLM_SIMPLE_MODEL);
+    const escalation = this.toOpenAi(
       routing.escalation ?? input.modelId,
-      SAKANA_CONVERSATION_MODEL,
+      LLM_CONVERSATION_MODEL,
     );
 
     if (routing.alwaysPrimary) return primary;
@@ -84,15 +84,13 @@ export class ModelRouterService {
   }
 
   /**
-   * Garante que o modelo é um ID Sakana válido (sakana/* ou fugu*). Qualquer
-   * coisa fora disso (modelId legado de Claude/Anthropic, override quebrado,
-   * vazio) cai no fallback Sakana informado.
+   * Garante que o modelo é um ID OpenAI válido (openai/*). Qualquer coisa
+   * fora disso (modelId legado sakana/fugu, Claude/Anthropic, override
+   * quebrado, vazio) cai no fallback OpenAI informado.
    */
-  private toSakana(model: string | undefined | null, fallback: string): string {
+  private toOpenAi(model: string | undefined | null, fallback: string): string {
     const m = (model ?? '').trim();
-    if (m.startsWith('sakana/') || m === 'fugu' || m.startsWith('fugu-')) {
-      return m;
-    }
+    if (m.startsWith('openai/')) return m;
     return fallback;
   }
 
