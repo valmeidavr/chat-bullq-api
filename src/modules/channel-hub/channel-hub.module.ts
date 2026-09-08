@@ -17,6 +17,9 @@ import { InstagramInboundAdapter } from './adapters/instagram/instagram.inbound-
 import { InstagramOutboundAdapter } from './adapters/instagram/instagram.outbound-adapter';
 import { InstagramSyncAdapter } from './adapters/instagram/instagram.sync-adapter';
 import { GmailModule } from './adapters/gmail/gmail.module';
+import { TwilioModule } from './adapters/twilio/twilio.module';
+import { TwilioInboundAdapter } from './adapters/twilio/twilio.inbound-adapter';
+import { TwilioOutboundAdapter } from './adapters/twilio/twilio.outbound-adapter';
 import { GmailInboundAdapter } from './adapters/gmail/gmail.inbound-adapter';
 import { GmailOutboundAdapter } from './adapters/gmail/gmail.outbound-adapter';
 import { ChannelSyncOrchestrator } from './sync/channel-sync.orchestrator';
@@ -42,6 +45,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     WhatsAppOfficialModule,
     InstagramModule,
     GmailModule,
+    TwilioModule,
     forwardRef(() => MessagingModule),
   ],
   controllers: [WebhookGatewayController, ChannelsController],
@@ -62,6 +66,7 @@ import { WebhookThrottleGuard } from './webhook-throttle.guard';
     InstagramModule,
     ZappfyModule,
     GmailModule,
+    TwilioModule,
   ],
 })
 export class ChannelHubModule implements OnModuleInit {
@@ -77,6 +82,8 @@ export class ChannelHubModule implements OnModuleInit {
     private readonly instagramSync: InstagramSyncAdapter,
     private readonly gmailInbound: GmailInboundAdapter,
     private readonly gmailOutbound: GmailOutboundAdapter,
+    private readonly twilioInbound: TwilioInboundAdapter,
+    private readonly twilioOutbound: TwilioOutboundAdapter,
   ) {}
 
   onModuleInit() {
@@ -84,6 +91,7 @@ export class ChannelHubModule implements OnModuleInit {
     this.registry.register(this.waOfficialInbound, this.waOfficialOutbound);
     this.registry.register(this.instagramInbound, this.instagramOutbound);
     this.registry.register(this.gmailInbound, this.gmailOutbound);
+    this.registry.register(this.twilioInbound, this.twilioOutbound);
     this.registry.registerHistorySync(this.zappfySync);
     this.registry.registerHistorySync(this.instagramSync);
   }
