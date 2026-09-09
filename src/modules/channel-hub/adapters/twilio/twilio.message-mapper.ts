@@ -104,6 +104,15 @@ export class TwilioMessageMapper {
     const content: NormalizedInboundMessage['content'] = {};
     if (b.Body) content.text = b.Body;
 
+    // Toque em botão (quick-reply) ou item de lista (list-picker): o Twilio
+    // manda o id da opção em ButtonPayload/ListId. Usamos como texto pra o nó
+    // MENU casar pelo `value`. Mantém o título em `Body` como fallback.
+    const picked = b.ButtonPayload || b.ListId || '';
+    if (picked) {
+      content.text = picked;
+      content.interactive = { type: b.ButtonPayload ? 'button' : 'list', buttonId: b.ButtonPayload || undefined, listRowId: b.ListId || undefined };
+    }
+
     if (numMedia > 0) {
       const mediaUrl = b.MediaUrl0;
       const mimeType = b.MediaContentType0;

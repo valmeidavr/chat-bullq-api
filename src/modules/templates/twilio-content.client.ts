@@ -84,6 +84,56 @@ export class TwilioContentClient {
     return { sid: data.sid };
   }
 
+  /**
+   * Cria um Content interativo pro nó MENU: `twilio/quick-reply` (até 3 opções,
+   * vira botões) ou `twilio/list-picker` (4–10 opções, vira lista). O `id` de
+   * cada opção é o `value` do menu — volta no inbound quando o usuário toca.
+   * Enviável DENTRO da janela de 24h sem aprovação do WhatsApp.
+   */
+  async createInteractiveMenu(
+    creds: TwilioCreds,
+    input: {
+      name: string;
+      language: string;
+      body: string;
+      buttonText?: string;
+      options: { id: string; title: string; description?: string }[];
+    },
+  ): Promise<{ sid: string; kind: 'quick-reply' | 'list-picker' }> {
+    const kind: 'quick-reply' | 'list-picker' =
+      input.options.length <= 3 ? 'quick-reply' : 'list-picker';
+
+    const types =
+      kind === 'quick-reply'
+        ? {
+            'twilio/quick-reply': {
+              body: input.body,
+              actions: input.options.slice(0, 3).map((o) => ({
+                title: o.title.slice(0, 20),
+                id: o.id,
+              })),
+            },
+          }
+        : {
+            'twilio/list-picker': {
+              body: input.body,
+              button: (input.buttonText || 'Ver opções').slice(0, 20),
+              items: input.options.slice(0, 10).map((o) => ({
+                item: o.title.slice(0, 24),
+                id: o.id,
+                description: (o.description || '').slice(0, 72),
+              })),
+            },
+          };
+
+    const { data } = await axios.post(
+      `${TwilioContentClient.BASE}/Content`,
+      { friendly_name: input.name, language: input.language, variables: {}, types },
+      { auth: this.auth(creds), timeout: 30000 },
+    );
+    return { sid: data.sid, kind };
+  }
+
   async submitApproval(
     creds: TwilioCreds,
     contentSid: string,

@@ -8,6 +8,7 @@ import {
 } from '../../ports/types';
 import { TwilioMessageMapper } from './twilio.message-mapper';
 import { TwilioHttpClient } from './twilio.http-client';
+import { TwilioMenuContentService } from './twilio-menu-content.service';
 
 @Injectable()
 export class TwilioOutboundAdapter implements OutboundChannelPort {
@@ -17,6 +18,7 @@ export class TwilioOutboundAdapter implements OutboundChannelPort {
   constructor(
     private readonly mapper: TwilioMessageMapper,
     private readonly httpClient: TwilioHttpClient,
+    private readonly menuContent: TwilioMenuContentService,
   ) {}
 
   async sendMessage(
@@ -24,6 +26,24 @@ export class TwilioOutboundAdapter implements OutboundChannelPort {
     contactExternalId: string,
     message: NormalizedOutboundMessage,
   ): Promise<SendResult> {
+    // Menu nativo (nó MENU): resolve/reusa um Content template (quick-reply ou
+    // list-picker) e envia via ContentSid. Se falhar, cai no texto (fallback).
+    const menu = message.content.interactiveMenu;
+    if (menu && menu.options?.length && menu.options.length <= 10 && !message.content.contentSid) {
+      try {
+        const cfg = this.httpClient.cfg(channel);
+        const { contentSid } = await this.menuContent.ensure(channel.id, {
+          accountSid: cfg.accountSid,
+          authToken: cfg.authToken,
+        }, menu);
+        message.content.contentSid = contentSid;
+      } catch (err: any) {
+        this.logger.warn(
+          `Menu nativo falhou (canal ${channel.id}); usando texto. ${err?.message ?? err}`,
+        );
+      }
+    }
+
     const params = this.mapper.denormalize(
       this.httpClient.cfg(channel),
       message,

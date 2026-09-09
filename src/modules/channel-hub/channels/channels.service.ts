@@ -16,6 +16,7 @@ import { WhatsAppOfficialHttpClient } from '../adapters/whatsapp-official/whatsa
 import { InstagramHttpClient } from '../adapters/instagram/instagram.http-client';
 import { GmailHttpClient } from '../adapters/gmail/gmail.http-client';
 import { TwilioHttpClient } from '../adapters/twilio/twilio.http-client';
+import { TwilioMenuContentService, MenuDescriptor } from '../adapters/twilio/twilio-menu-content.service';
 import { EvolutionHttpClient } from '../adapters/evolution/evolution.http-client';
 import { ChannelSyncOrchestrator } from '../sync/channel-sync.orchestrator';
 import {
@@ -35,6 +36,7 @@ export class ChannelsService {
     private readonly instagramHttpClient: InstagramHttpClient,
     private readonly gmailHttpClient: GmailHttpClient,
     private readonly twilioHttpClient: TwilioHttpClient,
+    private readonly twilioMenuContent: TwilioMenuContentService,
     private readonly evolutionHttpClient: EvolutionHttpClient,
     private readonly syncOrchestrator: ChannelSyncOrchestrator,
     private readonly prisma: PrismaService,
@@ -318,6 +320,47 @@ export class ChannelsService {
       );
     }
     return this.waOfficialHttpClient.listTemplates(channel);
+  }
+
+  /**
+   * Preview/sincronização do menu nativo no canal. Twilio → cria/reusa o
+   * Content (quick-reply/list-picker) e devolve o status ("autorizado"/erro).
+   * Outros canais → resposta indicando que será lista em texto simples.
+   */
+  async previewMenu(id: string, organizationId: string, menu: MenuDescriptor) {
+    const channel = await this.findOne(id, organizationId);
+    if (channel.type !== ChannelType.WHATSAPP_TWILIO) {
+      return {
+        supported: false as const,
+        kind: 'text' as const,
+        message: 'Este canal envia o menu como lista em texto simples.',
+      };
+    }
+    if (!menu?.options?.length) {
+      return { supported: true as const, ok: false as const, error: 'Menu sem opções.' };
+    }
+    if (menu.options.length > 10) {
+      return {
+        supported: true as const,
+        ok: false as const,
+        error: 'WhatsApp permite no máximo 10 itens em lista — acima disso vira texto.',
+      };
+    }
+    try {
+      const cfg = this.twilioHttpClient.cfg(channel);
+      const r = await this.twilioMenuContent.ensure(
+        channel.id,
+        { accountSid: cfg.accountSid, authToken: cfg.authToken },
+        menu,
+      );
+      return { supported: true as const, ok: true as const, kind: r.kind, contentSid: r.contentSid };
+    } catch (e: any) {
+      return {
+        supported: true as const,
+        ok: false as const,
+        error: e?.response?.data?.message || e?.message || 'Erro ao criar o menu no Twilio.',
+      };
+    }
   }
 
   async testConnection(id: string, organizationId: string) {

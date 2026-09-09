@@ -42,6 +42,23 @@ export interface NormalizedMessageContent {
   reaction?: { emoji: string; targetMessageId: string };
   interactive?: { type: string; buttonId?: string; listRowId?: string };
   /**
+   * Menu interativo do chatbot (nó MENU). O adapter que suportar UI nativa
+   * (ex.: Twilio → quick-reply/list-picker via Content API) renderiza isso
+   * como botões/lista; os demais canais ignoram e caem no `text` (lista
+   * numerada). `options[].id` casa com o `value` da opção no inbound.
+   */
+  interactiveMenu?: {
+    header?: string;
+    body: string;
+    footer?: string;
+    buttonText?: string;
+    options: { id: string; title: string; description?: string }[];
+  };
+  /** Content SID já resolvido (Twilio) — quando setado, envia via template. */
+  contentSid?: string;
+  /** Variáveis do Content template (Twilio). */
+  variables?: Record<string, string>;
+  /**
    * Telefones (só dígitos, com DDI) a mencionar. Vale apenas em grupo.
    * A string literal 'all' menciona todos os participantes.
    * Pra o WhatsApp desenhar a menção destacada, o `text` também precisa

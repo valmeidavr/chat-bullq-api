@@ -6,10 +6,15 @@ export class MenuNodeExecutor implements NodeExecutor {
   readonly nodeType = 'MENU';
 
   async execute(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
-    const { title, options } = ctx.nodeData as {
+    const d = ctx.nodeData as {
       title: string;
-      options: { label: string; value: string }[];
+      header?: string;
+      footer?: string;
+      buttonText?: string;
+      options: { label: string; value: string; description?: string }[];
     };
+    const { options } = d;
+    const title = d.title;
 
     const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
 
@@ -22,9 +27,32 @@ export class MenuNodeExecutor implements NodeExecutor {
       if (canGoBack) lines.push('0. Voltar');
       const menuText = lines.join('\n');
 
+      // Descritor de UI nativa (WhatsApp): o adapter que suportar (Twilio →
+      // botões/lista) renderiza isso; os demais canais usam o `text` acima.
+      const nativeOptions = options.map((o) => ({
+        id: o.value,
+        title: o.label,
+        description: o.description,
+      }));
+      if (canGoBack) nativeOptions.push({ id: 'voltar', title: '⬅️ Voltar', description: undefined });
+
       return {
         nextNodeId: null,
-        sendMessages: [{ type: 'TEXT', content: { text: menuText } }],
+        sendMessages: [
+          {
+            type: 'TEXT',
+            content: {
+              text: menuText,
+              interactiveMenu: {
+                header: d.header,
+                body: title || 'Escolha uma opção:',
+                footer: d.footer,
+                buttonText: d.buttonText,
+                options: nativeOptions,
+              },
+            },
+          },
+        ],
         waitForInput: true,
       };
     }

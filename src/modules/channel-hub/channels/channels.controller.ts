@@ -112,6 +112,17 @@ export class ChannelsController {
     return this.service.testConnection(id, orgId);
   }
 
+  @Post(':id/menu-preview')
+  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+  @ApiOperation({ summary: 'Cria/valida o menu nativo (botões/lista) no canal' })
+  menuPreview(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @Body() body: { header?: string; body: string; footer?: string; buttonText?: string; options: { id: string; title: string; description?: string }[] },
+  ) {
+    return this.service.previewMenu(id, orgId, body);
+  }
+
   @Get(':id/templates')
   @ApiOperation({
     summary:
