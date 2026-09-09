@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { Channel, ChannelType } from '@prisma/client';
 import {
   InboundChannelPort,
@@ -51,23 +52,75 @@ export class TwilioInboundAdapter implements InboundChannelPort {
   }
 
   validateWebhook(
-    _headers: Record<string, string>,
+    headers: Record<string, string>,
     rawBody: Buffer,
     _webhookSecret?: string,
     channel?: Channel,
   ): boolean {
-    // v1: confere que o AccountSid do corpo bate com o do canal. (Validação
-    // completa da assinatura X-Twilio-Signature é hardening de fase seguinte.)
     try {
       const params = new URLSearchParams(rawBody?.toString() || '');
       const accountSid = params.get('AccountSid');
       const config = (channel?.config ?? {}) as Record<string, any>;
-      if (!accountSid || !config.accountSid) return true; // não bloqueia se faltou dado
-      return String(accountSid) === String(config.accountSid);
+
+      // Camada 1: AccountSid do corpo bate com o do canal.
+      if (accountSid && config.accountSid && String(accountSid) !== String(config.accountSid)) {
+        this.logger.warn(`validateWebhook: AccountSid não confere (canal ${channel?.id})`);
+        return false;
+      }
+
+      // Camada 2 (opt-in): assinatura X-Twilio-Signature (HMAC-SHA1 do
+      // URL público + params ordenados, com o authToken). Só valida se
+      // habilitada; em divergência, por padrão apenas LOGA (log-only) e só
+      // REJEITA quando o enforce estiver ligado — evita derrubar inbound antes
+      // de conferir contra o tráfego real.
+      const wantSig =
+        config.twilioValidateSignature === true ||
+        process.env.TWILIO_VALIDATE_SIGNATURE === 'true';
+      if (wantSig) {
+        const h = this.lowerHeaders(headers);
+        const url = config.publicWebhookUrl || process.env.TWILIO_PUBLIC_WEBHOOK_URL;
+        const authToken = config.authToken;
+        const sig = h['x-twilio-signature'];
+        if (url && authToken && sig) {
+          const sortedKeys = [...params.keys()].sort();
+          let data = String(url);
+          for (const k of sortedKeys) data += k + (params.get(k) ?? '');
+          const expected = createHmac('sha1', String(authToken))
+            .update(data, 'utf8')
+            .digest('base64');
+          if (!this.safeEqual(expected, String(sig))) {
+            const enforce =
+              config.twilioEnforceSignature === true ||
+              process.env.TWILIO_ENFORCE_SIGNATURE === 'true';
+            this.logger.warn(
+              `X-Twilio-Signature ${enforce ? 'REJEITADA' : 'divergente (log-only)'} — canal ${channel?.id}`,
+            );
+            if (enforce) return false;
+          }
+        } else {
+          this.logger.warn(
+            `validateWebhook: assinatura habilitada mas falta url/authToken/header (canal ${channel?.id})`,
+          );
+        }
+      }
+      return true;
     } catch (err: any) {
       this.logger.warn(`validateWebhook falhou: ${err.message}`);
       return true;
     }
+  }
+
+  private lowerHeaders(headers: Record<string, string>): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers ?? {})) out[k.toLowerCase()] = v;
+    return out;
+  }
+
+  private safeEqual(a: string, b: string): boolean {
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ba.length !== bb.length) return false;
+    return timingSafeEqual(ba, bb);
   }
 
   parseWebhook(payload: unknown): WebhookParseResult {

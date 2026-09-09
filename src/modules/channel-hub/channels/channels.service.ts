@@ -43,6 +43,33 @@ export class ChannelsService {
     private readonly channelAccess: ChannelAccessService,
   ) {}
 
+  // ─── Máscara de segredos ────────────────────────────────────────────────
+  // O `config` do canal guarda segredos (authToken do Twilio, api keys, etc.).
+  // Eles NUNCA devem sair pra o cliente em texto puro. Mascaramos nas respostas
+  // ao cliente (lista + GET) e, no update, preservamos o valor salvo quando o
+  // cliente reenvia a máscara (edição não sobrescreve o segredo com '••••').
+  private static readonly SECRET_MASK = '••••••••';
+  private static isSecretKey(k: string): boolean {
+    return /token|secret|password|passphrase|private|api_?key|credential/i.test(k);
+  }
+  private static maskConfig(config: unknown): Record<string, any> {
+    const src = (config ?? {}) as Record<string, any>;
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(src)) {
+      out[k] =
+        ChannelsService.isSecretKey(k) && typeof v === 'string' && v.length > 0
+          ? ChannelsService.SECRET_MASK
+          : v;
+    }
+    return out;
+  }
+  private static maskChannel<T extends { config?: unknown }>(
+    channel: T | null | undefined,
+  ): T | null | undefined {
+    if (!channel) return channel;
+    return { ...channel, config: ChannelsService.maskConfig(channel.config) };
+  }
+
   async create(
     organizationId: string,
     dto: CreateChannelDto,
@@ -112,7 +139,7 @@ export class ChannelsService {
         );
     }
 
-    return channel;
+    return ChannelsService.maskChannel(channel);
   }
 
   /**
@@ -186,9 +213,12 @@ export class ChannelsService {
 
   async findAll(organizationId: string, access: ChannelAccess) {
     const accessibleIds = access === 'ALL' ? undefined : [...access];
-    return this.repository.findByOrganization(organizationId, accessibleIds);
+    const list = await this.repository.findByOrganization(organizationId, accessibleIds);
+    // Cliente nunca recebe segredo em texto puro.
+    return (list as any[]).map((c) => ChannelsService.maskChannel(c));
   }
 
+  /** Uso INTERNO (adapters, testConnection, etc.): retorna o config REAL. */
   async findOne(id: string, organizationId: string, access?: ChannelAccess) {
     const channel = await this.repository.findById(id);
     if (!channel) throw new NotFoundException('Channel not found');
@@ -199,6 +229,11 @@ export class ChannelsService {
       throw new ForbiddenException('You do not have access to this channel');
     }
     return channel;
+  }
+
+  /** Resposta ao CLIENTE (GET /channels/:id): segredos mascarados. */
+  async findOneForClient(id: string, organizationId: string, access?: ChannelAccess) {
+    return ChannelsService.maskChannel(await this.findOne(id, organizationId, access));
   }
 
   async update(
@@ -220,10 +255,29 @@ export class ChannelsService {
       );
     }
 
-    if (Object.keys(rest).length === 0) {
-      return this.repository.findById(id);
+    // Preserva segredos: se o cliente reenviar a máscara ('••••••••') num campo
+    // secreto do config, mantém o valor já salvo em vez de sobrescrever.
+    if (rest.config && typeof rest.config === 'object') {
+      const existing = await this.repository.findById(id);
+      const stored = (existing?.config ?? {}) as Record<string, any>;
+      const incoming = rest.config as Record<string, any>;
+      const merged: Record<string, any> = { ...incoming };
+      for (const [k, v] of Object.entries(incoming)) {
+        if (
+          ChannelsService.isSecretKey(k) &&
+          (v === ChannelsService.SECRET_MASK || v === '' || v == null)
+        ) {
+          if (stored[k] !== undefined) merged[k] = stored[k];
+          else delete merged[k];
+        }
+      }
+      rest.config = merged;
     }
-    return this.repository.update(id, rest);
+
+    if (Object.keys(rest).length === 0) {
+      return ChannelsService.maskChannel(await this.repository.findById(id));
+    }
+    return ChannelsService.maskChannel(await this.repository.update(id, rest));
   }
 
   /**

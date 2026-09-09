@@ -56,7 +56,7 @@ export class ChannelsController {
     @CurrentOrg('id') orgId: string,
     @CurrentChannelAccess() access: ChannelAccess,
   ) {
-    return this.service.findOne(id, orgId, access);
+    return this.service.findOneForClient(id, orgId, access);
   }
 
   @Patch(':id')
