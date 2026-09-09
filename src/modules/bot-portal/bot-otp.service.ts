@@ -8,6 +8,8 @@ interface OtpEntry {
   hash: string;
   cpf: string;
   attempts: number;
+  /** true = código entregue no número CADASTRADO (usuário em outro celular). */
+  viaRegistered?: boolean;
 }
 
 /**
@@ -69,6 +71,10 @@ export class BotOtpService {
     /** Permissão de agendar (mesma regra do site: avaliarPermissaoAgendar). */
     podeAgendar?: boolean;
     motivo?: string | null;
+    /** true = WhatsApp atual ≠ cadastrado; entregar o código em `deliverTo`. */
+    viaRegistered?: boolean;
+    /** Celular cadastrado (só dígitos) pra onde enviar o código. */
+    deliverTo?: string;
   }> {
     const clean = String(cpf).replace(/\D/g, '');
     if (clean.length !== 11) return { ok: false, reason: 'cpf_invalido' };
@@ -82,20 +88,35 @@ export class BotOtpService {
     }
     if (!info?.exists) return { ok: false, reason: 'nao_encontrado' };
 
+    // Anti-abuso: no máximo 3 códigos por CPF por hora (evita alguém disparar
+    // OTP em massa pro celular cadastrado de outra pessoa).
+    const rlKey = `bot:otp:rl:${clean}`;
+    const tries = await this.redis.incr(rlKey);
+    if (tries === 1) await this.redis.expire(rlKey, 3600);
+    if (tries > 3) return { ok: false, reason: 'rate_limit', nome: info.primeiroNome };
+
     const contatoCore = this.core(contactPhone);
     const celCore = this.core(info.celular);
     const telCore = this.core(info.telefone);
-    if (!contatoCore || (contatoCore !== celCore && contatoCore !== telCore)) {
+    const matches = !!contatoCore && (contatoCore === celCore || contatoCore === telCore);
+    // Outro celular: o código vai pro número CADASTRADO (prova de posse mesmo
+    // de outro aparelho). Sem número cadastrado, não há como confirmar.
+    const registered = String(info.celular || info.telefone || '').replace(/\D/g, '');
+    if (!matches && !registered) {
       return { ok: false, reason: 'telefone_nao_confere', masked: info.masked, nome: info.primeiroNome };
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    const entry: OtpEntry = { hash: this.hash(code), cpf: clean, attempts: 0 };
+    const entry: OtpEntry = { hash: this.hash(code), cpf: clean, attempts: 0, viaRegistered: !matches };
     await this.redis.setex(this.otpKey(conversationId), this.OTP_TTL, JSON.stringify(entry));
-    this.logger.log(`OTP gerado p/ conversa ${conversationId} (cpf ***${clean.slice(-3)})`);
+    this.logger.log(
+      `OTP gerado p/ conversa ${conversationId} (cpf ***${clean.slice(-3)}) via ${matches ? 'chat' : 'número cadastrado'}`,
+    );
     return {
       ok: true,
       code,
+      viaRegistered: !matches,
+      deliverTo: matches ? undefined : registered,
       masked: info.masked,
       nome: info.primeiroNome,
       podeAgendar: info.podeAgendar !== false,

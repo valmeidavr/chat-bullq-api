@@ -5,6 +5,7 @@ import {
   NodeExecutionResult,
 } from './node-executor.interface';
 import { BotOtpService } from '../../../bot-portal/bot-otp.service';
+import { OtpDeliveryService } from '../../../bot-portal/otp-delivery.service';
 
 /**
  * Nó OTP_REQUEST: lê o CPF (variável, capturado antes) + o WhatsApp de origem,
@@ -15,7 +16,10 @@ import { BotOtpService } from '../../../bot-portal/bot-otp.service';
 @Injectable()
 export class OtpRequestNodeExecutor implements NodeExecutor {
   readonly nodeType = 'OTP_REQUEST';
-  constructor(private readonly otp: BotOtpService) {}
+  constructor(
+    private readonly otp: BotOtpService,
+    private readonly delivery: OtpDeliveryService,
+  ) {}
 
   async execute(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
     const d = ctx.nodeData as Record<string, any>;
@@ -29,6 +33,48 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
 
     if (res.ok) {
       const nome = res.nome ? ` ${res.nome}` : '';
+      const perm = {
+        otpMasked: res.masked || '',
+        podeAgendar: res.podeAgendar === false ? 'nao' : 'sim',
+        permissaoMotivo: res.motivo || '',
+        permissaoDetalhe: res.detalhe || '',
+      };
+
+      // Outro celular: código vai pro número CADASTRADO (prova de posse).
+      if (res.viaRegistered && res.deliverTo) {
+        try {
+          const via = await this.delivery.sendToRegistered(ctx.channelId, res.deliverTo, res.code!);
+          return {
+            nextNodeId: successNext,
+            sendMessages: [
+              {
+                type: 'TEXT',
+                content: {
+                  text: `Este WhatsApp não é o número cadastrado${nome}. Por segurança, enviei um código de 6 dígitos para o celular cadastrado (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}. 🔐\n\nDigite o código aqui para continuar.`,
+                },
+              },
+            ],
+            waitForInput: false,
+            updatedVariables: { ...perm, otpVia: via },
+          };
+        } catch (e: any) {
+          return {
+            nextNodeId: errorNext,
+            sendMessages: [
+              {
+                type: 'TEXT',
+                content: {
+                  text: `Este WhatsApp não é o número cadastrado${nome} e não consegui enviar o código para o celular cadastrado (${res.masked || '****'}). Ligue para (24) 2102-1909 que a secretaria te ajuda. 🙂`,
+                },
+              },
+            ],
+            waitForInput: false,
+            updatedVariables: { otpError: `entrega_falhou:${e?.message || ''}` },
+          };
+        }
+      }
+
+      // Mesmo celular do cadastro: código na própria conversa.
       return {
         nextNodeId: successNext,
         sendMessages: [
@@ -40,20 +86,15 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
           },
         ],
         waitForInput: false,
-        // Permissão de agendar (igual ao site) fica na sessão pra barrar a
-        // entrada do "Agendar" cedo — o core do portal re-valida na hora de agendar.
-        updatedVariables: {
-          otpMasked: res.masked || '',
-          podeAgendar: res.podeAgendar === false ? 'nao' : 'sim',
-          permissaoMotivo: res.motivo || '',
-          permissaoDetalhe: res.detalhe || '',
-        },
+        updatedVariables: { ...perm, otpVia: 'chat' },
       };
     }
 
     const msg =
-      res.reason === 'telefone_nao_confere'
-        ? 'Por segurança, o agendamento pelo WhatsApp só funciona no número cadastrado na AAP-VR. Ligue para (24) 2102-1909 que a secretaria te ajuda. 🙂'
+      res.reason === 'rate_limit'
+        ? 'Muitos códigos pedidos para esse CPF. Aguarde 1 hora ou ligue para (24) 2102-1909. 🙂'
+        : res.reason === 'telefone_nao_confere'
+        ? 'Não encontrei um celular cadastrado para esse CPF. Ligue para (24) 2102-1909 que a secretaria atualiza seu cadastro. 🙂'
         : res.reason === 'nao_encontrado'
           ? 'Não encontrei um cadastro ativo com esse CPF. Confira o número ou fale com a AAP-VR: (24) 2102-1909.'
           : res.reason === 'cpf_invalido'
