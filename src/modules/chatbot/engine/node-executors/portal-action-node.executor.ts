@@ -163,8 +163,9 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         .filter((m) => Number(m.situacaoId) === 3 && m.id)
         .map((m) => ({
           value: String(m.id),
-          label: `${m.mes || this.dmy(m.vencimento)} — ${this.brl(Number(m.valor))}`,
-          description: `Vence ${this.dmy(m.vencimento)}${m.status === 'em_aberto' ? ' • em aberto' : ''}`,
+          // Data completa no título (desambigua meses com mais de uma cobrança).
+          label: `${this.dmy(m.vencimento)} — ${this.brl(Number(m.valor))}`,
+          description: `Mensalidade ${m.mes || ''}${m.status === 'em_aberto' ? ' • em aberto' : ' • futura'}`.trim(),
         }));
     }
     if (action === 'unidades') {

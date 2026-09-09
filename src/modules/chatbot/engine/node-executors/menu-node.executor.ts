@@ -49,12 +49,18 @@ export class MenuNodeExecutor implements NodeExecutor {
 
       // Descritor de UI nativa (WhatsApp): o adapter que suportar (Twilio →
       // botões/lista) renderiza isso; os demais canais usam o `text` acima.
-      const nativeOptions = options.map((o) => ({
+      // WhatsApp aceita no máx. 10 itens por lista. Se couber, inclui "Voltar";
+      // se a lista já tiver 10 opções reais, o Voltar fica só no texto (digitar
+      // "voltar"/"menu" continua funcionando pelo engine).
+      const MAX_ROWS = 10;
+      const nativeOptions = options.slice(0, MAX_ROWS).map((o) => ({
         id: o.value,
         title: o.label,
         description: o.description,
       }));
-      if (canGoBack) nativeOptions.push({ id: 'voltar', title: '⬅️ Voltar', description: undefined });
+      if (canGoBack && nativeOptions.length < MAX_ROWS) {
+        nativeOptions.push({ id: 'voltar', title: '⬅️ Voltar', description: undefined });
+      }
 
       return {
         nextNodeId: null,
