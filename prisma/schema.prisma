@@ -87,6 +87,10 @@ enum ChatbotNodeType {
   ACTION
   TRANSFER
   END_FLOW
+  QUESTION
+  HTTP_REQUEST
+  AI
+  HANDOFF_AI
 }
 
 enum NotificationType {
