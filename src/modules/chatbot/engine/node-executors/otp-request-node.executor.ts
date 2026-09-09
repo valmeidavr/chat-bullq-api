@@ -79,8 +79,18 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
           },
         };
       }
-      // Sem identificação pelo número → segue pra pedir o CPF (sem mensagem).
-      return { nextNodeId: askCpfNext, sendMessages: [], waitForInput: false, updatedVariables: { otpIdent: r.reason || 'nao_identificado' } };
+      // Sem identificação pelo número → segue pra pedir o CPF. `identMsg` explica
+      // o porquê (o nó Pergunta interpola {{identMsg}}).
+      const identMsg =
+        r.reason === 'multiplos'
+          ? 'Esse número está cadastrado para mais de uma pessoa. 👥'
+          : 'Não reconheci este número. 🔎';
+      return {
+        nextNodeId: askCpfNext,
+        sendMessages: [],
+        waitForInput: false,
+        updatedVariables: { otpIdent: r.reason || 'nao_identificado', identMsg },
+      };
     }
 
     const res = await this.otp.start(ctx.conversationId, ctx.contactExternalId, cpf);
@@ -104,7 +114,10 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
               {
                 type: 'TEXT',
                 content: {
-                  text: `🔐 Para sua segurança${nome}, estou enviando um código de confirmação para o *telefone cadastrado no sistema* (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}.\n\nAssim que receber, digite o código aqui para continuar.`,
+                  text:
+                    res.phoneSource === 'titular'
+                      ? `🔐 Para sua segurança${nome}, estou enviando um código de confirmação para o telefone do *titular ${res.titularNome || ''}* cadastrado no sistema (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}.\n\nAssim que receber, digite o código aqui para continuar.`
+                      : `🔐 Para sua segurança${nome}, estou enviando um código de confirmação para o *telefone cadastrado no sistema* (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}.\n\nAssim que receber, digite o código aqui para continuar.`,
                 },
               },
             ],

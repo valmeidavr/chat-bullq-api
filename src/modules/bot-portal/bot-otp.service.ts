@@ -77,6 +77,9 @@ export class BotOtpService {
     viaRegistered?: boolean;
     /** Celular cadastrado (só dígitos) pra onde enviar o código. */
     deliverTo?: string;
+    /** De quem é o telefone: do próprio associado ou do titular (dependente). */
+    phoneSource?: 'proprio' | 'titular';
+    titularNome?: string | null;
   }> {
     const clean = String(cpf).replace(/\D/g, '');
     if (clean.length !== 11) return { ok: false, reason: 'cpf_invalido' };
@@ -119,6 +122,8 @@ export class BotOtpService {
       code,
       viaRegistered: !matches,
       deliverTo: matches ? undefined : registered,
+      phoneSource: info.phoneSource === 'titular' ? 'titular' : 'proprio',
+      titularNome: info.titularNome ?? null,
       masked: info.masked,
       nome: info.primeiroNome,
       podeAgendar: info.podeAgendar !== false,
