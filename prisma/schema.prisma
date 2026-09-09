@@ -91,6 +91,9 @@ enum ChatbotNodeType {
   HTTP_REQUEST
   AI
   HANDOFF_AI
+  OTP_REQUEST
+  OTP_VERIFY
+  PORTAL_ACTION
 }
 
 enum NotificationType {

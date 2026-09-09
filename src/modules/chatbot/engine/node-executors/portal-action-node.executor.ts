@@ -1,0 +1,164 @@
+import { Injectable, Logger } from '@nestjs/common';
+import {
+  NodeExecutor,
+  NodeExecutionContext,
+  NodeExecutionResult,
+} from './node-executor.interface';
+import { BotPortalClient } from '../../../bot-portal/bot-portal.client';
+import { BotOtpService } from '../../../bot-portal/bot-otp.service';
+
+type PortalAction =
+  | 'mensalidades'
+  | 'unidades'
+  | 'especialidades'
+  | 'horarios'
+  | 'agendar'
+  | 'consultas'
+  | 'confirmar'
+  | 'cancelar';
+
+/**
+ * Nó PORTAL_ACTION: executa uma ação no portal do associado reusando as REGRAS
+ * do site (permissão, ECG, uma-por-especialidade, 48h/4h — tudo no portal).
+ * Exige a conversa autenticada (OTP) para ações por CPF. Salva a resposta numa
+ * variável e ramifica 'success'/'error'. nodeData: { action, saveAs?,
+ * sendAsMessage?, unidadeVar?, especialidadeVar?, agendaVar?, idVar? }.
+ */
+@Injectable()
+export class PortalActionNodeExecutor implements NodeExecutor {
+  readonly nodeType = 'PORTAL_ACTION';
+  private readonly logger = new Logger(PortalActionNodeExecutor.name);
+
+  constructor(
+    private readonly portal: BotPortalClient,
+    private readonly otp: BotOtpService,
+  ) {}
+
+  async execute(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
+    const d = ctx.nodeData as Record<string, any>;
+    const action = d.action as PortalAction;
+    const saveAs = (d.saveAs as string) || 'portalData';
+    const sendAsMessage = d.sendAsMessage !== false;
+    const vars = ctx.session.variables;
+
+    const successEdge = ctx.nodeEdges.find((e) => e.condition === 'success');
+    const errorEdge = ctx.nodeEdges.find((e) => e.condition === 'error');
+    const successNext = successEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null;
+    const errorNext = errorEdge?.targetNodeId || ctx.nodeEdges[1]?.targetNodeId || successNext;
+
+    const needsCpf = ['mensalidades', 'agendar', 'consultas', 'confirmar', 'cancelar'].includes(action);
+    const cpf = needsCpf ? await this.otp.authedCpf(ctx.conversationId) : null;
+    if (needsCpf && !cpf) {
+      return {
+        nextNodeId: errorNext,
+        sendMessages: [
+          { type: 'TEXT', content: { text: 'Sua sessão expirou. Vamos confirmar sua identidade de novo?' } },
+        ],
+        waitForInput: false,
+        updatedVariables: { [`${saveAs}_error`]: 'nao_autenticado' },
+      };
+    }
+
+    const num = (v: any) => Number(vars[v]);
+    try {
+      let data: any;
+      switch (action) {
+        case 'mensalidades':
+          data = await this.portal.mensalidades(cpf!);
+          break;
+        case 'unidades':
+          data = await this.portal.unidades();
+          break;
+        case 'especialidades':
+          data = await this.portal.especialidades(num(d.unidadeVar || 'unidadeId'));
+          break;
+        case 'horarios':
+          data = await this.portal.horarios(num(d.unidadeVar || 'unidadeId'), num(d.especialidadeVar || 'especialidadeId'));
+          break;
+        case 'agendar':
+          data = await this.portal.agendar(cpf!, num(d.agendaVar || 'agendaId'));
+          break;
+        case 'consultas':
+          data = await this.portal.consultas(cpf!);
+          break;
+        case 'confirmar':
+          data = await this.portal.confirmar(cpf!, num(d.idVar || 'consultaId'));
+          break;
+        case 'cancelar':
+          data = await this.portal.cancelar(cpf!, num(d.idVar || 'consultaId'));
+          break;
+        default:
+          throw new Error(`ação inválida: ${action}`);
+      }
+
+      // Ações que retornam {ok:false,error} do portal contam como erro.
+      const failed = data && data.ok === false;
+      const text = sendAsMessage ? this.format(action, data) : '';
+      return {
+        nextNodeId: failed ? errorNext : successNext,
+        sendMessages: text ? [{ type: 'TEXT', content: { text } }] : [],
+        waitForInput: false,
+        updatedVariables: { [saveAs]: data },
+      };
+    } catch (err: any) {
+      this.logger.warn(`PORTAL_ACTION ${action} falhou: ${err?.message}`);
+      return {
+        nextNodeId: errorNext,
+        sendMessages: [
+          { type: 'TEXT', content: { text: 'Não consegui completar agora. Tente novamente ou ligue (24) 2102-1909.' } },
+        ],
+        waitForInput: false,
+        updatedVariables: { [`${saveAs}_error`]: err?.message || 'erro' },
+      };
+    }
+  }
+
+  private brl(v: number): string {
+    return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+  private dmy(v: string): string {
+    const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v);
+  }
+  private dmyhm(v: string): string {
+    const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : String(v);
+  }
+
+  private format(action: PortalAction, data: any): string {
+    if (action === 'mensalidades') {
+      const ab = (data?.emAberto ?? []) as any[];
+      const fu = (data?.futuras ?? []) as any[];
+      if (!ab.length && !fu.length) return 'Você não tem mensalidades em aberto nem futuras. 🎉';
+      const lines: string[] = [];
+      if (ab.length) {
+        lines.push('*Em aberto:*');
+        ab.forEach((m) => lines.push(`• Venc. ${this.dmy(m.vencimento)} — ${this.brl(Number(m.valor))}`));
+      }
+      if (fu.length) {
+        lines.push('', '*Futuras:*');
+        fu.forEach((m) => lines.push(`• Venc. ${this.dmy(m.vencimento)} — ${this.brl(Number(m.valor))}`));
+      }
+      if (data?.isDependente && data?.titularNome) {
+        lines.push('', `_Contribuições do titular: ${data.titularNome}._`);
+      }
+      return lines.join('\n');
+    }
+    if (action === 'consultas') {
+      const cs = (data?.consultas ?? []) as any[];
+      if (!cs.length) return 'Você não tem consultas agendadas no momento.';
+      return ['*Suas consultas:*', ...cs.map((c, i) =>
+        `${i + 1}) ${c.especialidade} — ${this.dmyhm(c.dtagenda)} (${c.unidade}) — ${c.situacao === 'confirmada' ? '✅ confirmada' : '🕐 agendada'}`,
+      )].join('\n');
+    }
+    if (action === 'agendar') {
+      if (data?.ok) return data?.remarcada
+        ? 'Consulta remarcada com sucesso! ✅'
+        : 'Consulta agendada com sucesso! ✅';
+      return data?.error || 'Não foi possível agendar.';
+    }
+    if (action === 'confirmar') return data?.ok ? 'Consulta confirmada! ✅' : data?.error || 'Não foi possível confirmar.';
+    if (action === 'cancelar') return data?.ok ? 'Consulta cancelada. ' : data?.error || 'Não foi possível cancelar.';
+    return '';
+  }
+}

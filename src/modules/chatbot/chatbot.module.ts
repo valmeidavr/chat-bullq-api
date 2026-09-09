@@ -15,7 +15,11 @@ import { QuestionNodeExecutor } from './engine/node-executors/question-node.exec
 import { HttpRequestNodeExecutor } from './engine/node-executors/http-request-node.executor';
 import { AiNodeExecutor } from './engine/node-executors/ai-node.executor';
 import { HandoffAiNodeExecutor } from './engine/node-executors/handoff-ai-node.executor';
+import { OtpRequestNodeExecutor } from './engine/node-executors/otp-request-node.executor';
+import { OtpVerifyNodeExecutor } from './engine/node-executors/otp-verify-node.executor';
+import { PortalActionNodeExecutor } from './engine/node-executors/portal-action-node.executor';
 import { LlmModule } from '../ai-agents/llm/llm.module';
+import { BotPortalModule } from '../bot-portal/bot-portal.module';
 
 @Module({
   imports: [
@@ -24,6 +28,7 @@ import { LlmModule } from '../ai-agents/llm/llm.module';
       { name: 'outbound-messages' },
     ),
     LlmModule,
+    BotPortalModule,
   ],
   controllers: [ChatbotFlowsController],
   providers: [
@@ -41,6 +46,9 @@ import { LlmModule } from '../ai-agents/llm/llm.module';
     HttpRequestNodeExecutor,
     AiNodeExecutor,
     HandoffAiNodeExecutor,
+    OtpRequestNodeExecutor,
+    OtpVerifyNodeExecutor,
+    PortalActionNodeExecutor,
   ],
   exports: [ChatbotFlowsService, ChatbotFlowsRepository, ChatbotSessionService],
 })
