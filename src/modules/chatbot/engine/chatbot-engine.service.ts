@@ -107,7 +107,30 @@ export class ChatbotEngineService {
       return { messages: [], transferToHuman: false, sessionEnded: true };
     }
 
+    if (!flow.nodes.length) {
+      await this.sessionService.destroy(conversationId);
+      return { messages: [], transferToHuman: false, sessionEnded: true };
+    }
     const nodesMap = new Map(flow.nodes.map((n) => [n.id, n]));
+
+    // Sessão ÓRFÃ: o fluxo foi re-salvo (ids dos nós mudam) e a sessão aponta
+    // pra um nó que não existe mais. Antes isso encerrava em silêncio e ENGOLIA
+    // a mensagem do cliente. Agora recomeça do START na mesma hora.
+    if (!nodesMap.has(session.currentNodeId)) {
+      this.logger.warn(
+        `Sessão órfã em ${conversationId} (nó ${session.currentNodeId} não existe) — reiniciando do START`,
+      );
+      await this.sessionService.destroy(conversationId);
+      const startNode = flow.nodes.find((n) => n.type === 'START') || flow.nodes[0];
+      session = await this.sessionService.create(conversationId, flow.id, startNode.id);
+      if (startNode.type === 'START') {
+        const nextId = (startNode.edges as any[])[0]?.targetNodeId;
+        if (nextId) {
+          session = (await this.sessionService.update(conversationId, { currentNodeId: nextId }))!;
+        }
+      }
+    }
+
     let currentNodeId: string | null = session.currentNodeId;
     let iterations = 0;
     const MAX_ITERATIONS = 20;

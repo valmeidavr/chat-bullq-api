@@ -40,8 +40,8 @@ export class OtpVerifyNodeExecutor implements NodeExecutor {
     if (res.reason === 'muitas_tentativas' || res.reason === 'expirado') {
       const msg =
         res.reason === 'expirado'
-          ? 'O código expirou. Vamos tentar de novo?'
-          : 'Muitas tentativas. Por segurança, recomece o acesso.';
+          ? (res.kind === 'cpf' ? 'A confirmação expirou. Vamos tentar de novo?' : 'O código expirou. Vamos tentar de novo?')
+          : 'Muitas tentativas. Por segurança, recomece o acesso ou ligue para (24) 2102-1909.';
       return {
         nextNodeId: errorNext,
         sendMessages: [{ type: 'TEXT', content: { text: msg } }],
@@ -50,10 +50,14 @@ export class OtpVerifyNodeExecutor implements NodeExecutor {
       };
     }
 
-    // Código errado → pede de novo, continua aguardando neste nó.
+    // Errado → pede de novo, continua aguardando neste nó.
+    const again =
+      res.kind === 'cpf'
+        ? 'Não confere. Digite os *6 números do meio* do seu CPF (só os números):'
+        : 'Código incorreto. Digite os 6 dígitos novamente:';
     return {
       nextNodeId: null,
-      sendMessages: [{ type: 'TEXT', content: { text: 'Código incorreto. Digite os 6 dígitos novamente:' } }],
+      sendMessages: [{ type: 'TEXT', content: { text: again } }],
       waitForInput: true,
     };
   }

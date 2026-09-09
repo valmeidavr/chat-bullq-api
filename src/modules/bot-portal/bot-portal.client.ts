@@ -41,6 +41,10 @@ export class BotPortalClient {
   resolve(cpf: string) {
     return this.post('/api/bot/resolve', { cpf });
   }
+  /** Identifica o associado pelo número do WhatsApp (só se for exatamente um). */
+  resolveByPhone(phone: string) {
+    return this.post('/api/bot/resolve-by-phone', { phone });
+  }
   mensalidades(cpf: string) {
     return this.post('/api/bot/mensalidades', { cpf });
   }

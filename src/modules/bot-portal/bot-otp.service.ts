@@ -10,6 +10,8 @@ interface OtpEntry {
   attempts: number;
   /** true = código entregue no número CADASTRADO (usuário em outro celular). */
   viaRegistered?: boolean;
+  /** 'otp' = código de 6 dígitos; 'cpf' = completar os 6 dígitos do meio do CPF. */
+  kind?: 'otp' | 'cpf';
 }
 
 /**
@@ -107,7 +109,7 @@ export class BotOtpService {
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    const entry: OtpEntry = { hash: this.hash(code), cpf: clean, attempts: 0, viaRegistered: !matches };
+    const entry: OtpEntry = { hash: this.hash(code), cpf: clean, attempts: 0, viaRegistered: !matches, kind: 'otp' };
     await this.redis.setex(this.otpKey(conversationId), this.OTP_TTL, JSON.stringify(entry));
     this.logger.log(
       `OTP gerado p/ conversa ${conversationId} (cpf ***${clean.slice(-3)}) via ${matches ? 'chat' : 'número cadastrado'}`,
@@ -125,10 +127,56 @@ export class BotOtpService {
     };
   }
 
+  /**
+   * Login "complete seu CPF": identifica o associado pelo NÚMERO do WhatsApp
+   * (posse) e pede os 6 dígitos do meio do CPF (conhecimento). Só quando o
+   * número casa com exatamente um associado ativo; senão o fluxo pede o CPF.
+   * Guarda o hash dos 6 dígitos (3 tentativas); verify() confere igual ao OTP.
+   */
+  async startByPhone(
+    conversationId: string,
+    contactPhone: string,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    maskedCpf?: string;
+    nome?: string;
+    masked?: string;
+    podeAgendar?: boolean;
+    motivo?: string | null;
+    detalhe?: string;
+  }> {
+    let info: any;
+    try {
+      info = await this.portal.resolveByPhone(contactPhone);
+    } catch (err: any) {
+      this.logger.warn(`resolveByPhone falhou: ${err?.message}`);
+      return { ok: false, reason: 'portal_indisponivel' };
+    }
+    const cpf = String(info?.cpf ?? '').replace(/\D/g, '');
+    if (!info?.found || cpf.length !== 11) {
+      return { ok: false, reason: info?.multiple ? 'multiplos' : 'nao_identificado' };
+    }
+    const middle = cpf.slice(3, 9); // 6 dígitos do meio
+    const maskedCpf = `${cpf.slice(0, 3)}.•••.•••-${cpf.slice(9)}`;
+    const entry: OtpEntry = { hash: this.hash(middle), cpf, attempts: 0, kind: 'cpf' };
+    await this.redis.setex(this.otpKey(conversationId), this.OTP_TTL, JSON.stringify(entry));
+    this.logger.log(`Login por número p/ conversa ${conversationId} (cpf ***${cpf.slice(-3)})`);
+    return {
+      ok: true,
+      maskedCpf,
+      nome: info.primeiroNome,
+      masked: info.masked,
+      podeAgendar: info.podeAgendar !== false,
+      motivo: info.motivo ?? null,
+      detalhe: info.detalhe ?? undefined,
+    };
+  }
+
   async verify(
     conversationId: string,
     code: string,
-  ): Promise<{ ok: boolean; cpf?: string; reason?: string }> {
+  ): Promise<{ ok: boolean; cpf?: string; reason?: string; kind?: 'otp' | 'cpf' }> {
     const raw = await this.redis.get(this.otpKey(conversationId));
     if (!raw) return { ok: false, reason: 'expirado' };
     let entry: OtpEntry;
@@ -137,21 +185,45 @@ export class BotOtpService {
     } catch {
       return { ok: false, reason: 'expirado' };
     }
-    if (entry.attempts >= this.MAX_ATTEMPTS) {
+    const kind = entry.kind || 'otp';
+    const maxAttempts = kind === 'cpf' ? 3 : this.MAX_ATTEMPTS;
+    if (entry.attempts >= maxAttempts) {
       await this.redis.del(this.otpKey(conversationId));
-      return { ok: false, reason: 'muitas_tentativas' };
+      return { ok: false, reason: 'muitas_tentativas', kind };
     }
     const clean = String(code).replace(/\D/g, '');
     if (this.hash(clean) !== entry.hash) {
       entry.attempts += 1;
       const ttl = await this.redis.ttl(this.otpKey(conversationId));
       await this.redis.setex(this.otpKey(conversationId), ttl > 0 ? ttl : this.OTP_TTL, JSON.stringify(entry));
-      return { ok: false, reason: 'codigo_invalido' };
+      return { ok: false, reason: 'codigo_invalido', kind };
     }
     // Sucesso: marca a conversa como autenticada e limpa o OTP.
     await this.redis.del(this.otpKey(conversationId));
     await this.redis.setex(this.authKey(conversationId), this.AUTH_TTL, entry.cpf);
-    return { ok: true, cpf: entry.cpf };
+    return { ok: true, cpf: entry.cpf, kind };
+  }
+
+  /** Re-consulta a permissão de agendar (mesma regra do site) de um CPF já autenticado. */
+  async refreshPermissao(cpf: string): Promise<{
+    podeAgendar?: boolean;
+    motivo?: string | null;
+    detalhe?: string;
+    masked?: string;
+    nome?: string;
+  }> {
+    try {
+      const info: any = await this.portal.resolve(cpf);
+      return {
+        podeAgendar: info?.podeAgendar !== false,
+        motivo: info?.motivo ?? null,
+        detalhe: info?.detalhe ?? undefined,
+        masked: info?.masked,
+        nome: info?.primeiroNome,
+      };
+    } catch {
+      return {};
+    }
   }
 
   /** CPF autenticado da conversa (ou null). Renova o TTL a cada uso. */

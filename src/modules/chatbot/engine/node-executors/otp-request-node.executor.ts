@@ -11,7 +11,8 @@ import { OtpDeliveryService } from '../../../bot-portal/otp-delivery.service';
  * Nó OTP_REQUEST: lê o CPF (variável, capturado antes) + o WhatsApp de origem,
  * confere com o cadastro (portal) e, se casar, envia um código de 6 dígitos na
  * conversa. Arestas: 'success' (código enviado) / 'error' (não confere / não
- * encontrado). nodeData: { cpfVar?='cpf' }.
+ * encontrado) / 'ask_cpf' (modo phone: não identificou pelo número).
+ * nodeData: { mode?: 'cpf' | 'phone', cpfVar?='cpf' }.
  */
 @Injectable()
 export class OtpRequestNodeExecutor implements NodeExecutor {
@@ -28,6 +29,59 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
     const errorEdge = ctx.nodeEdges.find((e) => e.condition === 'error');
     const successNext = successEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null;
     const errorNext = errorEdge?.targetNodeId || ctx.nodeEdges[1]?.targetNodeId || successNext;
+
+    // Já autenticado nesta conversa (30 min)? Pula a identificação e segue
+    // pela aresta 'authed' (se existir), atualizando a permissão de agendar.
+    const authedNext = ctx.nodeEdges.find((e) => e.condition === 'authed')?.targetNodeId;
+    if (authedNext) {
+      const authed = await this.otp.authedCpf(ctx.conversationId);
+      if (authed) {
+        const p = await this.otp.refreshPermissao(authed);
+        return {
+          nextNodeId: authedNext,
+          sendMessages: [],
+          waitForInput: false,
+          updatedVariables: {
+            cpfAutenticado: authed,
+            otpMasked: p.masked || '',
+            podeAgendar: p.podeAgendar === false ? 'nao' : 'sim',
+            permissaoMotivo: p.motivo || '',
+            permissaoDetalhe: p.detalhe || '',
+          },
+        };
+      }
+    }
+
+    // Modo "phone": identifica pelo NÚMERO do WhatsApp e pede pra completar o
+    // CPF (6 dígitos do meio). Não identificou (ou vários) → aresta 'ask_cpf'.
+    if (d.mode === 'phone') {
+      const askCpfNext = ctx.nodeEdges.find((e) => e.condition === 'ask_cpf')?.targetNodeId || errorNext;
+      const r = await this.otp.startByPhone(ctx.conversationId, ctx.contactExternalId);
+      if (r.ok) {
+        const nome = r.nome ? `, ${r.nome}` : '';
+        return {
+          nextNodeId: successNext,
+          sendMessages: [
+            {
+              type: 'TEXT',
+              content: {
+                text: `Encontrei seu cadastro${nome}! 🔐 Para confirmar que é você, complete seu CPF:\n\n*${r.maskedCpf}*\n\nDigite os *6 números do meio* (só os números).`,
+              },
+            },
+          ],
+          waitForInput: false,
+          updatedVariables: {
+            otpMasked: r.masked || '',
+            otpVia: 'cpf',
+            podeAgendar: r.podeAgendar === false ? 'nao' : 'sim',
+            permissaoMotivo: r.motivo || '',
+            permissaoDetalhe: r.detalhe || '',
+          },
+        };
+      }
+      // Sem identificação pelo número → segue pra pedir o CPF (sem mensagem).
+      return { nextNodeId: askCpfNext, sendMessages: [], waitForInput: false, updatedVariables: { otpIdent: r.reason || 'nao_identificado' } };
+    }
 
     const res = await this.otp.start(ctx.conversationId, ctx.contactExternalId, cpf);
 
