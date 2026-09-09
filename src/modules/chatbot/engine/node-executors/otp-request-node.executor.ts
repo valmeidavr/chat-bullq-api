@@ -163,7 +163,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
         : res.reason === 'telefone_nao_confere'
         ? 'Não encontramos um número de celular cadastrado para este CPF. 📱\n\nPara atualizar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909 - opção 3. 🙂'
         : res.reason === 'nao_encontrado'
-          ? 'Não encontrei um cadastro ativo com esse CPF. Confira o número ou fale com a AAP-VR: (24) 2102-1909.'
+          ? 'Não encontramos um cadastro ativo vinculado a este CPF. 😊\n\nPara atualizar ou verificar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.'
           : res.reason === 'cpf_invalido'
             ? 'CPF inválido. Digite os 11 números do seu CPF.'
             : 'Não consegui validar agora. Tente novamente em instantes ou ligue (24) 2102-1909.';
