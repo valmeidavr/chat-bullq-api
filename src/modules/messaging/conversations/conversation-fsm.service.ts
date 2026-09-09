@@ -3,6 +3,7 @@ import { AutomationTrigger, ConversationStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { RatingsService } from '../../ratings/ratings.service';
 import { OutboxService } from '../../automations/outbox/outbox.service';
+import { ChatbotSessionService } from '../../chatbot/session/chatbot-session.service';
 
 type Transition = {
   from: ConversationStatus;
@@ -29,7 +30,41 @@ export class ConversationFsmService {
     private readonly prisma: PrismaService,
     private readonly ratings: RatingsService,
     private readonly outbox: OutboxService,
+    private readonly chatbotSession: ChatbotSessionService,
   ) {}
+
+  /**
+   * Zera o estado do fluxo/chatbot de uma conversa: apaga a sessão no Redis
+   * (posição atual do fluxo + variáveis capturadas) e reseta o flag de
+   * handoff pra IA. Efeito: a próxima mensagem do contato recomeça o fluxo
+   * do nó inicial (START) e o Fluxo volta a ser o "dono" da conversa.
+   * Usado no encerramento da conversa e na ação manual "Zerar fluxo".
+   */
+  async resetFlow(conversationId: string, actorId?: string): Promise<void> {
+    const conversation = await this.prisma.conversation.findUniqueOrThrow({
+      where: { id: conversationId },
+      select: { metadata: true },
+    });
+    const md = (conversation.metadata as Record<string, any>) || {};
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { metadata: { ...md, flowHandoffToAi: false } },
+      });
+      await tx.conversationAuditLog.create({
+        data: {
+          conversationId,
+          actorId,
+          action: 'FLOW_RESET',
+          metadata: {},
+        },
+      });
+    });
+
+    await this.chatbotSession.destroy(conversationId);
+    this.logger.log(`Flow reset for conversation ${conversationId}`);
+  }
 
   canTransition(from: ConversationStatus, to: ConversationStatus): boolean {
     return VALID_TRANSITIONS.some((t) => t.from === from && t.to === to);
@@ -104,6 +139,11 @@ export class ConversationFsmService {
     if (to === ConversationStatus.CLOSED) {
       this.ratings.requestRating(conversationId).catch((err) => {
         this.logger.warn(`Failed to request rating for ${conversationId}: ${err?.message}`);
+      });
+      // Encerrou → zera o fluxo pra próxima conversa recomeçar do início
+      // (best-effort: não pode derrubar o encerramento se o Redis falhar).
+      this.resetFlow(conversationId, actorId).catch((err) => {
+        this.logger.warn(`Failed to reset flow for ${conversationId}: ${err?.message}`);
       });
     }
   }

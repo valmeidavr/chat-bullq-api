@@ -373,6 +373,17 @@ export class ConversationsController {
     return this.service.close(id, orgId, userId, access);
   }
 
+  @Post(':id/reset-flow')
+  @ApiOperation({ summary: 'Reset the chatbot/flow session of a conversation' })
+  resetFlow(
+    @Param('id') id: string,
+    @CurrentOrg('id') orgId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentChannelAccess() access: ChannelAccess,
+  ) {
+    return this.service.resetFlow(id, orgId, userId, access);
+  }
+
   @Post(':id/reopen')
   @ApiOperation({ summary: 'Reopen a closed conversation' })
   reopen(

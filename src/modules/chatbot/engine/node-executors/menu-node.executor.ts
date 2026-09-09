@@ -11,12 +11,16 @@ export class MenuNodeExecutor implements NodeExecutor {
       options: { label: string; value: string }[];
     };
 
+    const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
+
     if (!ctx.incomingMessage) {
-      const menuText = [
+      const lines = [
         title || 'Escolha uma opção:',
         '',
         ...options.map((opt, i) => `${i + 1}. ${opt.label}`),
-      ].join('\n');
+      ];
+      if (canGoBack) lines.push('0. Voltar');
+      const menuText = lines.join('\n');
 
       return {
         nextNodeId: null,

@@ -102,6 +102,32 @@ export class ChatbotEngineService {
     let iterations = 0;
     const MAX_ITERATIONS = 20;
 
+    // "Voltar" em submenus: se aguardamos input num MENU e o contato digitou
+    // 0/voltar, desempilha o menu anterior e re-renderiza (waitingForInput=false
+    // faz o executor renderizar o menu de novo, em vez de tratar como resposta).
+    const BACK_CMDS = ['0', 'voltar', 'volta'];
+    if (session.waitingForInput && currentNodeId) {
+      const curNode = nodesMap.get(currentNodeId);
+      const txt = (incomingText || '').trim().toLowerCase();
+      if (
+        curNode?.type === 'MENU' &&
+        BACK_CMDS.includes(txt) &&
+        (session.menuHistory?.length ?? 0) > 0
+      ) {
+        const history = [...(session.menuHistory as string[])];
+        const prev = history.pop();
+        if (prev && nodesMap.has(prev)) {
+          session = (await this.sessionService.update(conversationId, {
+            currentNodeId: prev,
+            currentMenuId: prev,
+            waitingForInput: false,
+            menuHistory: history,
+          }))!;
+          currentNodeId = prev;
+        }
+      }
+    }
+
     while (currentNodeId && iterations < MAX_ITERATIONS) {
       iterations++;
       const node = nodesMap.get(currentNodeId);
@@ -116,6 +142,22 @@ export class ChatbotEngineService {
       if (!executor) {
         this.logger.warn(`No executor for node type: ${node.type}`);
         break;
+      }
+
+      // Rastreia navegação entre menus p/ suportar "Voltar". Só na renderização
+      // do menu (waitingForInput=false); ao empilhar, o executor já enxerga o
+      // histórico via ctx.session e mostra a opção "0. Voltar".
+      if (node.type === 'MENU' && !session.waitingForInput) {
+        if (session.currentMenuId && session.currentMenuId !== node.id) {
+          const history: string[] = session.menuHistory ? [...session.menuHistory] : [];
+          history.push(session.currentMenuId);
+          session.menuHistory = history;
+        }
+        session.currentMenuId = node.id;
+        session = (await this.sessionService.update(conversationId, {
+          currentMenuId: session.currentMenuId,
+          menuHistory: session.menuHistory,
+        }))!;
       }
 
       const ctx: NodeExecutionContext = {

@@ -668,6 +668,23 @@ export class ConversationsService {
     return updated;
   }
 
+  /**
+   * Zera o fluxo de conversa de um contato sob demanda (botão "Zerar fluxo").
+   * A próxima mensagem recomeça do nó inicial do fluxo.
+   */
+  async resetFlow(
+    id: string,
+    organizationId: string,
+    actorId: string,
+    access: ChannelAccess = 'ALL',
+  ) {
+    await this.findOne(id, organizationId, access);
+    await this.fsm.resetFlow(id, actorId);
+    const updated = await this.repository.findById(id);
+    this.broadcastUpdate(updated as Conversation | null);
+    return { reset: true };
+  }
+
   async reopen(
     id: string,
     organizationId: string,
