@@ -112,6 +112,13 @@ export class ChannelsController {
     return this.service.testConnection(id, orgId);
   }
 
+  @Get(':id/twilio-balance')
+  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+  @ApiOperation({ summary: 'Saldo da conta Twilio em R$ e US$' })
+  twilioBalance(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
+    return this.service.getTwilioBalance(id, orgId);
+  }
+
   @Post(':id/menu-preview')
   @Roles(OrgRole.OWNER, OrgRole.ADMIN)
   @ApiOperation({ summary: 'Cria/valida o menu nativo (botões/lista) no canal' })

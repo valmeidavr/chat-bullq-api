@@ -417,6 +417,36 @@ export class ChannelsService {
     }
   }
 
+  /** Saldo da conta Twilio, convertido pra R$ e US$ (câmbio USD-BRL ao vivo). */
+  async getTwilioBalance(id: string, organizationId: string) {
+    const channel = await this.findOne(id, organizationId);
+    if (channel.type !== ChannelType.WHATSAPP_TWILIO) {
+      throw new BadRequestException('Este canal não é Twilio.');
+    }
+    const { balance, currency } = await this.twilioHttpClient.getBalance(channel);
+    const amount = Number(balance) || 0;
+
+    let rate: number | null = null; // USD -> BRL
+    try {
+      const r = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
+      const j: any = await r.json();
+      rate = Number(j?.USDBRL?.bid) || null;
+    } catch {
+      /* câmbio indisponível — mostra só a moeda nativa */
+    }
+
+    let usd: number | null = null;
+    let brl: number | null = null;
+    if (currency === 'USD') {
+      usd = amount;
+      brl = rate ? amount * rate : null;
+    } else if (currency === 'BRL') {
+      brl = amount;
+      usd = rate ? amount / rate : null;
+    }
+    return { currency, amount, usd, brl, rate };
+  }
+
   async testConnection(id: string, organizationId: string) {
     const channel = await this.findOne(id, organizationId);
 

@@ -62,6 +62,16 @@ export class TwilioHttpClient {
     return data;
   }
 
+  /** Saldo da conta Twilio: { balance, currency } (moeda da conta, ex.: USD). */
+  async getBalance(channel: Channel): Promise<{ balance: string; currency: string }> {
+    const { accountSid, authToken } = this.cfg(channel);
+    const { data } = await axios.get(
+      `${TwilioHttpClient.BASE_URL}/Accounts/${accountSid}/Balance.json`,
+      { auth: { username: accountSid, password: authToken }, timeout: 20000 },
+    );
+    return { balance: String(data?.balance ?? '0'), currency: String(data?.currency ?? 'USD') };
+  }
+
   /** Baixa mídia de uma URL do Twilio (exige Basic auth da conta). */
   async downloadMedia(channel: Channel, mediaUrl: string): Promise<Buffer> {
     const { accountSid, authToken } = this.cfg(channel);
