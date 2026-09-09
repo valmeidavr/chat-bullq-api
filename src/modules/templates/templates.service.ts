@@ -107,13 +107,18 @@ export class TemplatesService {
     });
 
     // 2. Cria o Content no Twilio + submete pra aprovação de WhatsApp.
+    //    AUTHENTICATION (OTP) usa o formato fixo do Meta (corpo gerado por ele,
+    //    botão "copiar código") — texto livre nessa categoria é rejeitado.
     try {
-      const { sid } = await this.content.createContent(creds, {
-        name: dto.name,
-        language,
-        body: dto.body,
-        buttons: dto.buttons,
-      });
+      const { sid } =
+        String(dto.category).toUpperCase() === 'AUTHENTICATION'
+          ? await this.content.createAuthenticationTemplate(creds, { name: dto.name, language })
+          : await this.content.createContent(creds, {
+              name: dto.name,
+              language,
+              body: dto.body,
+              buttons: dto.buttons,
+            });
       await this.content.submitApproval(creds, sid, {
         name: dto.name,
         category: dto.category,

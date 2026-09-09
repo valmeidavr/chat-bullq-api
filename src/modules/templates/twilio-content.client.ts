@@ -134,6 +134,35 @@ export class TwilioContentClient {
     return { sid: data.sid, kind };
   }
 
+  /**
+   * Template de AUTENTICAÇÃO (OTP) do WhatsApp — formato fixo do Meta (o corpo
+   * é gerado por ele: "{{1}} é seu código de verificação"), com botão "copiar
+   * código" e aviso de segurança. Categoria AUTHENTICATION; aprovação costuma
+   * ser automática. Envio: ContentSid + ContentVariables {"1": codigo}.
+   */
+  async createAuthenticationTemplate(
+    creds: TwilioCreds,
+    input: { name: string; language: string; codeExpirationMinutes?: number },
+  ): Promise<{ sid: string }> {
+    const payload = {
+      friendly_name: input.name,
+      language: input.language,
+      variables: { '1': '123456' },
+      types: {
+        'whatsapp/authentication': {
+          add_security_recommendation: true,
+          code_expiration_minutes: input.codeExpirationMinutes ?? 10,
+          actions: [{ type: 'COPY_CODE', copy_code_text: 'Copiar código' }],
+        },
+      },
+    };
+    const { data } = await axios.post(`${TwilioContentClient.BASE}/Content`, payload, {
+      auth: this.auth(creds),
+      timeout: 30000,
+    });
+    return { sid: data.sid };
+  }
+
   async submitApproval(
     creds: TwilioCreds,
     contentSid: string,
