@@ -36,6 +36,12 @@ export class ChatbotProcessor extends WorkerHost {
       messageText,
     );
 
+    // Envia na MESMA ordem em que o fluxo produziu (resultado antes, menu por
+    // último). Sem um intervalo, as chamadas ao Twilio correm em paralelo e o
+    // WhatsApp pode exibir fora de ordem (menu antes do texto). Um delay
+    // incremental garante a ordem e ainda dá um ritmo natural de conversa.
+    const STEP_MS = 1300;
+    let idx = 0;
     for (const msg of result.messages) {
       const saved = await this.prisma.message.create({
         data: {
@@ -47,12 +53,17 @@ export class ChatbotProcessor extends WorkerHost {
         },
       });
 
-      await this.outboundQueue.add('send-outbound', {
-        messageId: saved.id,
-        channelId,
-        contactExternalId,
-        message: { type: msg.type, content: msg.content },
-      });
+      await this.outboundQueue.add(
+        'send-outbound',
+        {
+          messageId: saved.id,
+          channelId,
+          contactExternalId,
+          message: { type: msg.type, content: msg.content },
+        },
+        { delay: idx * STEP_MS },
+      );
+      idx++;
     }
 
     if (result.transferToHuman) {
