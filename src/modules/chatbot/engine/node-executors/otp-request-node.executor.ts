@@ -40,7 +40,14 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
           },
         ],
         waitForInput: false,
-        updatedVariables: { otpMasked: res.masked || '' },
+        // Permissão de agendar (igual ao site) fica na sessão pra barrar a
+        // entrada do "Agendar" cedo — o core do portal re-valida na hora de agendar.
+        updatedVariables: {
+          otpMasked: res.masked || '',
+          podeAgendar: res.podeAgendar === false ? 'nao' : 'sim',
+          permissaoMotivo: res.motivo || '',
+          permissaoDetalhe: res.detalhe || '',
+        },
       };
     }
 

@@ -59,7 +59,17 @@ export class BotOtpService {
     conversationId: string,
     contactPhone: string,
     cpf: string,
-  ): Promise<{ ok: boolean; code?: string; masked?: string; nome?: string; reason?: string; detalhe?: string }> {
+  ): Promise<{
+    ok: boolean;
+    code?: string;
+    masked?: string;
+    nome?: string;
+    reason?: string;
+    detalhe?: string;
+    /** Permissão de agendar (mesma regra do site: avaliarPermissaoAgendar). */
+    podeAgendar?: boolean;
+    motivo?: string | null;
+  }> {
     const clean = String(cpf).replace(/\D/g, '');
     if (clean.length !== 11) return { ok: false, reason: 'cpf_invalido' };
 
@@ -83,7 +93,15 @@ export class BotOtpService {
     const entry: OtpEntry = { hash: this.hash(code), cpf: clean, attempts: 0 };
     await this.redis.setex(this.otpKey(conversationId), this.OTP_TTL, JSON.stringify(entry));
     this.logger.log(`OTP gerado p/ conversa ${conversationId} (cpf ***${clean.slice(-3)})`);
-    return { ok: true, code, masked: info.masked, nome: info.primeiroNome };
+    return {
+      ok: true,
+      code,
+      masked: info.masked,
+      nome: info.primeiroNome,
+      podeAgendar: info.podeAgendar !== false,
+      motivo: info.motivo ?? null,
+      detalhe: info.detalhe ?? undefined,
+    };
   }
 
   async verify(
