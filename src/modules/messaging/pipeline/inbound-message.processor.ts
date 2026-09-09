@@ -264,37 +264,64 @@ export class InboundMessageProcessor extends WorkerHost {
         message: savedMessage,
       });
 
-      if (
+      // ─── Orquestração Fluxo × IA (1 "dono" por vez) ────────────────
+      // flowOwns = existe fluxo ativo no canal E a conversa não foi entregue
+      // pra IA. Enquanto o fluxo é dono, a IA NÃO dispara (evita atropelo).
+      // "Voltar ao fluxo": palavras-chave devolvem o controle pro fluxo.
+      const inboundText = String((message.content as any)?.text || '')
+        .trim()
+        .toLowerCase();
+      const RETURN_KEYWORDS = ['menu', 'voltar', 'voltar ao menu', 'inicio', 'início'];
+      let flowHandoffToAi = false;
+      if (!isEcho) {
+        const convFlag = await this.prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: { metadata: true },
+        });
+        flowHandoffToAi = !!(convFlag?.metadata as Record<string, any>)?.flowHandoffToAi;
+        if (flowHandoffToAi && RETURN_KEYWORDS.includes(inboundText)) {
+          const md = (convFlag?.metadata as Record<string, any>) || {};
+          await this.prisma.conversation.update({
+            where: { id: conversationId },
+            data: { metadata: { ...md, flowHandoffToAi: false } },
+          });
+          flowHandoffToAi = false;
+          this.logger.log(`Conversa ${conversationId} voltou pro fluxo (keyword)`);
+        }
+      }
+
+      const hasActiveBot =
         !isEcho &&
         (status === ConversationStatus.BOT ||
           status === ConversationStatus.PENDING)
-      ) {
-        const hasActiveBot = await this.checkActiveBotForChannel(channelId);
-        if (hasActiveBot) {
-          if (status === ConversationStatus.PENDING) {
-            await this.prisma.conversation.update({
-              where: { id: conversationId },
-              data: { status: ConversationStatus.BOT },
-            });
-          }
-          await this.chatbotQueue.add(
-            'process-bot',
-            {
-              conversationId,
-              channelId,
-              contactExternalId: message.externalContactId,
-              organizationId,
-              messageText: (message.content as any)?.text || '',
-            },
-            {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-              removeOnComplete: true,
-              removeOnFail: false,
-            },
-          );
-          this.logger.log(`Routed to chatbot: conv=${conversationId}`);
+          ? await this.checkActiveBotForChannel(channelId)
+          : false;
+      const flowOwns = hasActiveBot && !flowHandoffToAi;
+
+      if (flowOwns) {
+        if (status === ConversationStatus.PENDING) {
+          await this.prisma.conversation.update({
+            where: { id: conversationId },
+            data: { status: ConversationStatus.BOT },
+          });
         }
+        await this.chatbotQueue.add(
+          'process-bot',
+          {
+            conversationId,
+            channelId,
+            contactExternalId: message.externalContactId,
+            organizationId,
+            messageText: (message.content as any)?.text || '',
+          },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
+        );
+        this.logger.log(`Routed to chatbot: conv=${conversationId}`);
       }
 
       this.logger.log(
@@ -332,7 +359,8 @@ export class InboundMessageProcessor extends WorkerHost {
       // instead of seeing "[audio]" and apologizing it can't listen. Cost
       // is ~$0.006/min — predictable and pays for itself the moment the
       // bot answers a single audio without bouncing the customer to text.
-      if (!isEcho) {
+      // Só dispara a IA se o fluxo NÃO for o dono da conversa (anti-atropelo).
+      if (!isEcho && !flowOwns) {
         const dispatch = async () => {
           if (savedMessage.type === PrismaContentType.AUDIO) {
             try {

@@ -14,6 +14,7 @@ import { TransferNodeExecutor } from './engine/node-executors/transfer-node.exec
 import { QuestionNodeExecutor } from './engine/node-executors/question-node.executor';
 import { HttpRequestNodeExecutor } from './engine/node-executors/http-request-node.executor';
 import { AiNodeExecutor } from './engine/node-executors/ai-node.executor';
+import { HandoffAiNodeExecutor } from './engine/node-executors/handoff-ai-node.executor';
 import { LlmModule } from '../ai-agents/llm/llm.module';
 
 @Module({
@@ -39,6 +40,7 @@ import { LlmModule } from '../ai-agents/llm/llm.module';
     QuestionNodeExecutor,
     HttpRequestNodeExecutor,
     AiNodeExecutor,
+    HandoffAiNodeExecutor,
   ],
   exports: [ChatbotFlowsService, ChatbotFlowsRepository, ChatbotSessionService],
 })

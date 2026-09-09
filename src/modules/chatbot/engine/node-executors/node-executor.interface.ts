@@ -17,6 +17,8 @@ export interface NodeExecutionResult {
   updatedVariables?: Record<string, any>;
   transferToHuman?: boolean;
   transferDepartmentId?: string;
+  /** Entrega a conversa pra IA assumir (encerra o fluxo). */
+  handoffToAi?: boolean;
 }
 
 export interface NodeExecutor {

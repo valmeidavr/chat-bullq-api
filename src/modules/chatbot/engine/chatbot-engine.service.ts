@@ -15,12 +15,15 @@ import { TransferNodeExecutor } from './node-executors/transfer-node.executor';
 import { QuestionNodeExecutor } from './node-executors/question-node.executor';
 import { HttpRequestNodeExecutor } from './node-executors/http-request-node.executor';
 import { AiNodeExecutor } from './node-executors/ai-node.executor';
+import { HandoffAiNodeExecutor } from './node-executors/handoff-ai-node.executor';
 
 export interface EngineResult {
   messages: { type: string; content: Record<string, any> }[];
   transferToHuman: boolean;
   transferDepartmentId?: string;
   sessionEnded: boolean;
+  /** Fluxo entregou a conversa pra IA assumir. */
+  handoffToAi?: boolean;
 }
 
 @Injectable()
@@ -39,6 +42,7 @@ export class ChatbotEngineService {
     questionExec: QuestionNodeExecutor,
     httpExec: HttpRequestNodeExecutor,
     aiExec: AiNodeExecutor,
+    handoffAiExec: HandoffAiNodeExecutor,
   ) {
     this.executors = new Map<string, NodeExecutor>();
     this.executors.set(messageExec.nodeType, messageExec);
@@ -49,6 +53,7 @@ export class ChatbotEngineService {
     this.executors.set(questionExec.nodeType, questionExec);
     this.executors.set(httpExec.nodeType, httpExec);
     this.executors.set(aiExec.nodeType, aiExec);
+    this.executors.set(handoffAiExec.nodeType, handoffAiExec);
   }
 
   async processMessage(
@@ -135,6 +140,16 @@ export class ChatbotEngineService {
         transferDepartmentId = result.transferDepartmentId;
         await this.sessionService.destroy(conversationId);
         return { messages: allMessages, transferToHuman, transferDepartmentId, sessionEnded: true };
+      }
+
+      if (result.handoffToAi) {
+        await this.sessionService.destroy(conversationId);
+        return {
+          messages: allMessages,
+          transferToHuman: false,
+          sessionEnded: true,
+          handoffToAi: true,
+        };
       }
 
       if (result.waitForInput) {

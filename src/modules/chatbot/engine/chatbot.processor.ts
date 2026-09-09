@@ -77,7 +77,20 @@ export class ChatbotProcessor extends WorkerHost {
       this.logger.log(`Bot transferred conversation ${conversationId} to human`);
     }
 
-    if (result.sessionEnded && !result.transferToHuman) {
+    if (result.handoffToAi) {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { metadata: true },
+      });
+      const md = (conv?.metadata as Record<string, any>) || {};
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { metadata: { ...md, flowHandoffToAi: true } },
+      });
+      this.logger.log(`Fluxo entregou conversa ${conversationId} para a IA`);
+    }
+
+    if (result.sessionEnded && !result.transferToHuman && !result.handoffToAi) {
       this.logger.log(`Bot session ended for conversation ${conversationId}`);
     }
 
