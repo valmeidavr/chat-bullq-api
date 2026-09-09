@@ -104,7 +104,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
               {
                 type: 'TEXT',
                 content: {
-                  text: `Este WhatsApp não é o número cadastrado${nome}. Por segurança, enviei um código de 6 dígitos para o celular cadastrado (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}. 🔐\n\nDigite o código aqui para continuar.`,
+                  text: `🔐 Para sua segurança${nome}, estou enviando um código de confirmação para o *telefone cadastrado no sistema* (${res.masked || '****'}) por ${via === 'sms' ? 'SMS' : 'WhatsApp'}.\n\nAssim que receber, digite o código aqui para continuar.`,
                 },
               },
             ],
@@ -135,7 +135,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
           {
             type: 'TEXT',
             content: {
-              text: `Encontrei seu cadastro${nome}! 🔐\n\nSeu código de acesso é *${res.code}*.\nDigite o código aqui para confirmar sua identidade.`,
+              text: `🔐 Confirmei que este é o telefone cadastrado no sistema${nome}.\n\nSeu código de acesso é *${res.code}*.\nDigite o código aqui para continuar.`,
             },
           },
         ],
