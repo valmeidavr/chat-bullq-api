@@ -296,7 +296,28 @@ export class InboundMessageProcessor extends WorkerHost {
           status === ConversationStatus.PENDING)
           ? await this.checkActiveBotForChannel(channelId)
           : false;
-      const flowOwns = hasActiveBot && !flowHandoffToAi;
+
+      // Modo de atendimento do canal (configurável no admin):
+      //   FLOW         = só fluxo (IA nunca dispara)
+      //   AI           = só IA (ignora fluxo)
+      //   FLOW_THEN_AI = fluxo na entrada, entrega pra IA no handoff (padrão)
+      // Default: se há fluxo ativo no canal → FLOW_THEN_AI; senão → AI.
+      const chan = await this.prisma.channel.findUnique({
+        where: { id: channelId },
+        select: { config: true },
+      });
+      const mode: 'FLOW' | 'AI' | 'FLOW_THEN_AI' =
+        ((chan?.config as Record<string, any>)?.atendimentoMode as any) ||
+        (hasActiveBot ? 'FLOW_THEN_AI' : 'AI');
+
+      // Só Fluxo → o fluxo é sempre o dono enquanto ativo (ignora handoff).
+      // Fluxo→IA → dono até o handoff. Só IA → fluxo nunca é dono.
+      const flowOwns =
+        mode === 'AI'
+          ? false
+          : hasActiveBot && (mode === 'FLOW' ? true : !flowHandoffToAi);
+      // No modo "Só Fluxo", a IA nunca dispara (nem quando o fluxo termina).
+      const aiAllowed = mode !== 'FLOW';
 
       if (flowOwns) {
         if (status === ConversationStatus.PENDING) {
@@ -359,8 +380,9 @@ export class InboundMessageProcessor extends WorkerHost {
       // instead of seeing "[audio]" and apologizing it can't listen. Cost
       // is ~$0.006/min — predictable and pays for itself the moment the
       // bot answers a single audio without bouncing the customer to text.
-      // Só dispara a IA se o fluxo NÃO for o dono da conversa (anti-atropelo).
-      if (!isEcho && !flowOwns) {
+      // Só dispara a IA se o fluxo NÃO for o dono da conversa (anti-atropelo)
+      // e se o modo do canal permitir IA (modo "Só Fluxo" bloqueia).
+      if (!isEcho && !flowOwns && aiAllowed) {
         const dispatch = async () => {
           if (savedMessage.type === PrismaContentType.AUDIO) {
             try {
