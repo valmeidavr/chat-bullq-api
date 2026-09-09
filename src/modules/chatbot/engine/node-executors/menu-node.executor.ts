@@ -27,9 +27,10 @@ export class MenuNodeExecutor implements NodeExecutor {
       : d.options || [];
 
     if (dynamic && options.length === 0 && !ctx.incomingMessage) {
-      // Sem itens disponíveis → segue pela aresta (o fluxo trata o "vazio").
+      // Sem itens → aresta 'empty' se existir (senão a 1ª). O fluxo trata o vazio.
+      const emptyEdge = ctx.nodeEdges.find((e) => e.condition === 'empty');
       return {
-        nextNodeId: ctx.nodeEdges[0]?.targetNodeId || null,
+        nextNodeId: emptyEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null,
         sendMessages: [{ type: 'TEXT', content: { text: d.footer || 'Nada disponível no momento.' } }],
         waitForInput: false,
       };
@@ -100,7 +101,7 @@ export class MenuNodeExecutor implements NodeExecutor {
     // Menu dinâmico: sem ramificar por condição — salva a escolha e segue.
     // Menu estático: ramifica pela aresta cuja condição = value da opção.
     const nextNodeId = dynamic
-      ? ctx.nodeEdges[0]?.targetNodeId || null
+      ? (ctx.nodeEdges.find((e) => e.condition !== 'empty') ?? ctx.nodeEdges[0])?.targetNodeId || null
       : ctx.nodeEdges.find((e) => e.condition === selected.value)?.targetNodeId ||
         ctx.nodeEdges[0]?.targetNodeId ||
         null;

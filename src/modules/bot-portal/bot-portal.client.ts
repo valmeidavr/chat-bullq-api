@@ -65,4 +65,8 @@ export class BotPortalClient {
   cancelar(cpf: string, id: number) {
     return this.post('/api/bot/cancelar', { cpf, id });
   }
+  /** Pix (copia-e-cola + QR) e boleto de UMA contribuição. */
+  pagar(cpf: string, contribuicaoId: number) {
+    return this.post('/api/bot/pagar', { cpf, contribuicaoId });
+  }
 }

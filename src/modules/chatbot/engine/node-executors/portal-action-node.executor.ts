@@ -15,7 +15,8 @@ type PortalAction =
   | 'agendar'
   | 'consultas'
   | 'confirmar'
-  | 'cancelar';
+  | 'cancelar'
+  | 'pagar';
 
 /**
  * Nó PORTAL_ACTION: executa uma ação no portal do associado reusando as REGRAS
@@ -46,7 +47,7 @@ export class PortalActionNodeExecutor implements NodeExecutor {
     const successNext = successEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null;
     const errorNext = errorEdge?.targetNodeId || ctx.nodeEdges[1]?.targetNodeId || successNext;
 
-    const needsCpf = ['mensalidades', 'agendar', 'consultas', 'confirmar', 'cancelar'].includes(action);
+    const needsCpf = ['mensalidades', 'agendar', 'consultas', 'confirmar', 'cancelar', 'pagar'].includes(action);
     const cpf = needsCpf ? await this.otp.authedCpf(ctx.conversationId) : null;
     if (needsCpf && !cpf) {
       return {
@@ -87,12 +88,26 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         case 'cancelar':
           data = await this.portal.cancelar(cpf!, num(d.idVar || 'consultaId'));
           break;
+        case 'pagar':
+          data = await this.portal.pagar(cpf!, num(d.idVar || 'contribuicaoId'));
+          break;
         default:
           throw new Error(`ação inválida: ${action}`);
       }
 
       // Ações que retornam {ok:false,error} do portal contam como erro.
       const failed = data && data.ok === false;
+      if (action === 'pagar' && data?.ok && sendAsMessage) {
+        const valor = this.brl(Number(data.valor_total || 0) / 100);
+        const ref = (data.meses || []).join(', ');
+        const msgs: { type: string; content: Record<string, any> }[] = [
+          { type: 'TEXT', content: { text: `💰 *Mensalidade ${ref}* — ${valor}${data.vencimento ? ` (vence ${data.vencimento})` : ''}\n\nPague por *Pix copia e cola* (toque e segure na próxima mensagem pra copiar):` } },
+          { type: 'TEXT', content: { text: String(data.brcode || '') } },
+        ];
+        if (data.qr_image) msgs.push({ type: 'IMAGE', content: { mediaUrl: String(data.qr_image), caption: 'QR Code Pix — escaneie no app do seu banco' } });
+        if (data.boleto_pdf) msgs.push({ type: 'TEXT', content: { text: `📄 Prefere *boleto*? Baixe aqui: ${data.boleto_pdf}` } });
+        return { nextNodeId: successNext, sendMessages: msgs, waitForInput: false, updatedVariables: { [saveAs]: data } };
+      }
       const text = sendAsMessage ? this.format(action, data) : '';
       const updated: Record<string, any> = { [saveAs]: data };
       // Ações de LISTA também expõem `<saveAs>Options` (pronto pra menu dinâmico).
@@ -131,6 +146,16 @@ export class PortalActionNodeExecutor implements NodeExecutor {
 
   /** Converte listas do portal em opções de menu {value,label,description}. */
   private optionsFor(action: PortalAction, data: any): { value: string; label: string; description?: string }[] | null {
+    if (action === 'mensalidades') {
+      const all = [...(data?.emAberto ?? []), ...(data?.futuras ?? [])] as any[];
+      return all
+        .filter((m) => Number(m.situacaoId) === 3 && m.id)
+        .map((m) => ({
+          value: String(m.id),
+          label: `${m.mes || this.dmy(m.vencimento)} — ${this.brl(Number(m.valor))}`,
+          description: `Vence ${this.dmy(m.vencimento)}${m.status === 'em_aberto' ? ' • em aberto' : ''}`,
+        }));
+    }
     if (action === 'unidades') {
       return (data?.unidades ?? []).map((u: any) => ({
         value: String(u.id ?? u.unidadeId ?? ''),
@@ -193,6 +218,7 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         : 'Consulta agendada com sucesso! ✅';
       return data?.error || 'Não foi possível agendar.';
     }
+    if (action === 'pagar') return data?.ok ? '' : data?.error || 'Não foi possível gerar o pagamento.';
     if (action === 'confirmar') return data?.ok ? 'Consulta confirmada! ✅' : data?.error || 'Não foi possível confirmar.';
     if (action === 'cancelar') return data?.ok ? 'Consulta cancelada. ' : data?.error || 'Não foi possível cancelar.';
     return '';
