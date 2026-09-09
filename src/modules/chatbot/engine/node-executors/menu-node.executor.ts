@@ -1,16 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { NodeExecutor, NodeExecutionContext, NodeExecutionResult } from './node-executor.interface';
+import { BotOtpService } from '../../../bot-portal/bot-otp.service';
 
 type Opt = { label: string; value: string; description?: string };
 
-/** WhatsApp aceita no máx. 10 itens por lista; com paginação: 9 + "Ver mais". */
+/** WhatsApp aceita no máx. 10 linhas por lista. */
 const MAX_ROWS = 10;
-const PAGE_SIZE = 9;
 const MORE_ID = '__more__';
+const END_ID = '__end__';
+const BACK_ID = 'voltar';
+const END_WORDS = ['encerrar', 'finalizar', 'encerrar atendimento', 'finalizar atendimento', 'sair'];
 
 @Injectable()
 export class MenuNodeExecutor implements NodeExecutor {
   readonly nodeType = 'MENU';
+
+  constructor(private readonly otp: BotOtpService) {}
 
   async execute(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
     const d = ctx.nodeData as {
@@ -19,24 +24,24 @@ export class MenuNodeExecutor implements NodeExecutor {
       footer?: string;
       buttonText?: string;
       options: Opt[];
-      /** Menu dinâmico: monta as opções a partir de uma variável (lista vinda da API). */
+      /** Menu dinâmico: monta as opções a partir de uma variável (lista da API). */
       optionsFrom?: string;
-      /** Salva o valor escolhido nesta variável (útil no menu dinâmico p/ o próximo nó). */
+      /** Salva o valor escolhido nesta variável (e o texto em `<saveAs>Label`). */
       saveAs?: string;
       /** Mensagem enviada SÓ quando a lista dinâmica vem vazia (não é rodapé). */
       emptyMessage?: string;
+      /** Mostrar "Encerrar atendimento" (padrão: sim). */
+      showEnd?: boolean;
     };
     const vars = ctx.session.variables;
     const title = d.title || 'Escolha uma opção:';
 
-    // Menu dinâmico: opções vêm de uma variável (ex.: PORTAL_ACTION que listou
-    // especialidades/horários). Normaliza pra {label,value,description}.
     const dynamic = !!d.optionsFrom;
     const options: Opt[] = dynamic ? this.normalize(vars[d.optionsFrom as string]) : d.options || [];
     const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
+    const showEnd = d.showEnd !== false;
 
     if (dynamic && options.length === 0 && !ctx.incomingMessage) {
-      // Sem itens → aresta 'empty' se existir (senão a 1ª). O fluxo trata o vazio.
       const emptyEdge = ctx.nodeEdges.find((e) => e.condition === 'empty');
       return {
         nextNodeId: emptyEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null,
@@ -45,29 +50,32 @@ export class MenuNodeExecutor implements NodeExecutor {
       };
     }
 
-    // Paginação (só quando passa de 10): página atual guardada na sessão.
+    // Linhas fixas (Voltar/Encerrar) reduzem o espaço dos itens na lista nativa.
+    const fixedRows = (canGoBack ? 1 : 0) + (showEnd ? 1 : 0);
+    const paginate = options.length > MAX_ROWS - fixedRows;
+    const pageSize = Math.max(1, MAX_ROWS - fixedRows - (paginate ? 1 : 0));
+    const totalPages = Math.max(1, Math.ceil(options.length / pageSize));
     const pageKey = `_menuPage_${ctx.session.currentNodeId}`;
-    const paginate = options.length > MAX_ROWS;
     const pageOf = (pg: number) => {
       if (!paginate) return { slice: options, hasMore: false };
-      const start = pg * PAGE_SIZE;
-      return { slice: options.slice(start, start + PAGE_SIZE), hasMore: start + PAGE_SIZE < options.length };
+      const start = pg * pageSize;
+      return { slice: options.slice(start, start + pageSize), hasMore: start + pageSize < options.length };
     };
 
     const render = (pg: number): NodeExecutionResult => {
       const { slice, hasMore } = pageOf(pg);
-      const lines = [title, '', ...slice.map((opt, i) => `${i + 1}. ${opt.label}`)];
-      if (hasMore) lines.push(`${slice.length + 1}. Ver mais ▶`);
+      const lines = [title, '', ...slice.map((o, i) => `${i + 1}. ${o.label}`)];
+      let n = slice.length;
+      if (hasMore) lines.push(`${++n}. Ver mais ▶`);
       if (canGoBack) lines.push('0. Voltar');
-      if (paginate) lines.push('', `Página ${pg + 1} de ${Math.ceil(options.length / PAGE_SIZE)}`);
+      if (showEnd) lines.push('*encerrar* — finalizar atendimento');
+      if (paginate) lines.push('', `Página ${pg + 1} de ${totalPages}`);
 
-      // Descritor de UI nativa (WhatsApp): o adapter que suportar (Twilio/Meta →
-      // botões/lista) renderiza isso; os demais canais usam o `text` acima.
       const nativeOptions = slice.map((o) => ({ id: o.value, title: o.label, description: o.description }));
-      if (hasMore) nativeOptions.push({ id: MORE_ID, title: 'Ver mais ▶', description: `Página ${pg + 2}` });
-      if (canGoBack && nativeOptions.length < MAX_ROWS) {
-        nativeOptions.push({ id: 'voltar', title: '⬅️ Voltar', description: undefined });
-      }
+      if (hasMore) nativeOptions.push({ id: MORE_ID, title: 'Ver mais ▶', description: `Página ${pg + 2} de ${totalPages}` });
+      if (canGoBack) nativeOptions.push({ id: BACK_ID, title: '⬅️ Voltar', description: 'Escolher outra opção' });
+      if (showEnd) nativeOptions.push({ id: END_ID, title: '🔚 Encerrar atendimento', description: 'Finaliza e recomeça do início' });
+
       return {
         nextNodeId: null,
         sendMessages: [
@@ -80,7 +88,7 @@ export class MenuNodeExecutor implements NodeExecutor {
                 body: title,
                 footer: d.footer,
                 buttonText: d.buttonText,
-                options: nativeOptions,
+                options: nativeOptions.slice(0, MAX_ROWS),
               },
             },
           },
@@ -90,40 +98,50 @@ export class MenuNodeExecutor implements NodeExecutor {
       };
     };
 
-    // Entrada no nó (sem resposta pendente): renderiza a 1ª página.
     if (!ctx.incomingMessage) return render(0);
 
     const input = ctx.incomingMessage.trim();
+    const lower = input.toLowerCase();
     const page = Number(vars[pageKey]) || 0;
     const { slice, hasMore } = pageOf(page);
 
-    // "Ver mais" (toque no item ou número da posição) → próxima página.
-    if (hasMore && (input === MORE_ID || parseInt(input, 10) === slice.length + 1)) {
-      return render(page + 1);
+    // Encerrar atendimento: desfaz o login (CPF) e limpa o fluxo — a próxima
+    // mensagem recomeça do início e pede identificação de novo.
+    if (input === END_ID || END_WORDS.includes(lower)) {
+      await this.otp.logout(ctx.conversationId).catch(() => undefined);
+      return {
+        nextNodeId: null,
+        sendMessages: [
+          {
+            type: 'TEXT',
+            content: {
+              text: 'Atendimento encerrado. ✅ Obrigado por falar com a AAP-VR!\n\nQuando quiser, é só mandar uma mensagem que começamos de novo. 😊',
+            },
+          },
+        ],
+        waitForInput: false,
+        endSession: true,
+      };
     }
 
+    if (hasMore && (input === MORE_ID || parseInt(input, 10) === slice.length + 1)) return render(page + 1);
+
     const selectedIndex = parseInt(input, 10) - 1;
-    const selectedByNumber = slice[selectedIndex];
-    const selectedByValue = options.find(
-      (o) => o.value.toLowerCase() === input.toLowerCase() || o.label.toLowerCase() === input.toLowerCase(),
-    );
-    const selected = selectedByNumber || selectedByValue;
+    const selected =
+      slice[selectedIndex] ||
+      options.find((o) => o.value.toLowerCase() === lower || o.label.toLowerCase() === lower);
 
     if (!selected) {
-      // Modo "Fluxo + IA juntos": em vez de "opção inválida", deixa a IA de
-      // apoio responder a pergunta solta e o engine re-exibe o menu.
       if (ctx.aiAssist) {
         return { nextNodeId: null, sendMessages: [], waitForInput: true, aiAssistText: input };
       }
       return {
         nextNodeId: null,
-        sendMessages: [{ type: 'TEXT', content: { text: 'Opção inválida. Tente novamente.' } }],
+        sendMessages: [{ type: 'TEXT', content: { text: 'Não entendi essa opção. 🤔 Toque em *Ver opções* e escolha uma da lista.' } }],
         waitForInput: true,
       };
     }
 
-    // Menu dinâmico: sem ramificar por condição — salva a escolha e segue.
-    // Menu estático: ramifica pela aresta cuja condição = value da opção.
     const nextNodeId = dynamic
       ? (ctx.nodeEdges.find((e) => e.condition !== 'empty') ?? ctx.nodeEdges[0])?.targetNodeId || null
       : ctx.nodeEdges.find((e) => e.condition === selected.value)?.targetNodeId ||
@@ -131,12 +149,16 @@ export class MenuNodeExecutor implements NodeExecutor {
         null;
 
     const updatedVariables: Record<string, any> = { lastMenuSelection: selected.value, [pageKey]: 0 };
-    if (d.saveAs) updatedVariables[d.saveAs] = selected.value;
+    if (d.saveAs) {
+      updatedVariables[d.saveAs] = selected.value;
+      // Guarda o texto escolhido — usado nas confirmações ("agendado para …").
+      updatedVariables[`${d.saveAs}Label`] = selected.label;
+      if (selected.description) updatedVariables[`${d.saveAs}Desc`] = selected.description;
+    }
 
     return { nextNodeId, sendMessages: [], waitForInput: false, updatedVariables };
   }
 
-  /** Normaliza uma lista qualquer em opções de menu {label,value,description}. */
   private normalize(v: any): Opt[] {
     if (!Array.isArray(v)) return [];
     const out: Opt[] = [];

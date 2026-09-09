@@ -29,6 +29,8 @@ type PortalAction =
 export class PortalActionNodeExecutor implements NodeExecutor {
   readonly nodeType = 'PORTAL_ACTION';
   private readonly logger = new Logger(PortalActionNodeExecutor.name);
+  /** Variáveis da sessão do turno atual (usadas nas mensagens de confirmação). */
+  private vars: Record<string, any> = {};
 
   constructor(
     private readonly portal: BotPortalClient,
@@ -60,6 +62,7 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       };
     }
 
+    this.vars = vars;
     const num = (v: any) => Number(vars[v]);
     try {
       let data: any;
@@ -228,11 +231,16 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       }));
     }
     if (action === 'consultas') {
-      return (data?.consultas ?? []).map((c: any) => ({
-        value: String(c.id ?? ''),
-        label: `${c.especialidade ?? 'Consulta'} — ${this.dmyhm(c.dtagenda ?? '')}`,
-        description: c.unidade || undefined,
-      }));
+      return (data?.consultas ?? []).map((c: any) => {
+        const esp = this.titleCase(String(c.especialidade ?? 'Consulta'));
+        const med = c.medico ? `Dr(a). ${this.titleCase(String(c.medico))}` : '';
+        const uni = c.unidade ? this.titleCase(String(c.unidade)) : '';
+        return {
+          value: String(c.id ?? ''),
+          label: this.dmyhm(c.dtagenda ?? ''),
+          description: [esp, med, uni].filter(Boolean).join(' • ').slice(0, 72),
+        };
+      });
     }
     return null;
   }
@@ -264,10 +272,19 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       )].join('\n');
     }
     if (action === 'agendar') {
-      if (data?.ok) return data?.remarcada
-        ? 'Consulta remarcada com sucesso! ✅'
-        : 'Consulta agendada com sucesso! ✅';
-      return data?.error || 'Não foi possível agendar.';
+      if (!data?.ok) return data?.error || 'Não foi possível agendar.';
+      const v = this.vars;
+      const linhas = [
+        data?.remarcada ? '✅ *Consulta remarcada com sucesso!*' : '✅ *Consulta agendada com sucesso!*',
+        '',
+        v?.agendaIdLabel ? `📅 ${v.agendaIdLabel}` : '',
+        v?.agendaIdDesc ? `👨‍⚕️ ${v.agendaIdDesc}` : '',
+        v?.especialidadeIdLabel ? `🩺 ${v.especialidadeIdLabel}` : '',
+        v?.unidadeIdDesc || v?.unidadeIdLabel ? `🏥 ${v.unidadeIdDesc || v.unidadeIdLabel}` : '',
+        '',
+        'Você pode *confirmar* ou *cancelar* em "Minhas consultas". 😊',
+      ];
+      return linhas.filter((l) => l !== '').join('\n').replace('\n\nVocê pode', '\n\nVocê pode');
     }
     if (action === 'pagar') return data?.ok ? '' : data?.error || 'Não foi possível gerar o pagamento.';
     if (action === 'confirmar') return data?.ok ? 'Consulta confirmada! ✅' : data?.error || 'Não foi possível confirmar.';

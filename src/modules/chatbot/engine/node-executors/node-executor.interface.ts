@@ -27,6 +27,8 @@ export interface NodeExecutionResult {
    * menu (em vez de "opção inválida").
    */
   aiAssistText?: string;
+  /** Encerra o atendimento: limpa a sessão do fluxo (recomeça do início). */
+  endSession?: boolean;
 }
 
 export interface NodeExecutor {

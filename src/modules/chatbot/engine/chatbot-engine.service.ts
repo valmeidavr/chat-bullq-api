@@ -236,6 +236,13 @@ export class ChatbotEngineService {
         return { messages: allMessages, transferToHuman: false, sessionEnded: false };
       }
 
+      // Encerrar atendimento (opção do menu): limpa a sessão e recomeça do
+      // início na próxima mensagem.
+      if (result.endSession) {
+        await this.sessionService.destroy(conversationId);
+        return { messages: allMessages, transferToHuman: false, sessionEnded: true };
+      }
+
       if (result.transferToHuman) {
         transferToHuman = true;
         transferDepartmentId = result.transferDepartmentId;
