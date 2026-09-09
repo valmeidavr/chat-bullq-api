@@ -132,6 +132,17 @@ export class PortalActionNodeExecutor implements NodeExecutor {
     }
   }
 
+  /** "CENTRO DE SAÚDE X" → "Centro De Saúde X" (preposições curtas em minúsculo). */
+  private titleCase(v: string): string {
+    const small = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+    return String(v)
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w, i) => (i > 0 && small.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+      .join(' ')
+      .trim();
+  }
+
   private brl(v: number): string {
     return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
@@ -157,23 +168,29 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         }));
     }
     if (action === 'unidades') {
-      return (data?.unidades ?? []).map((u: any) => ({
-        value: String(u.id ?? u.unidadeId ?? ''),
-        label: String(u.unidade ?? u.nome ?? u.id ?? ''),
-        description: u.endereco || undefined,
-      }));
+      // Título do item tem 24 chars no WhatsApp: nome em Título Case; o nome
+      // completo + endereço vão na descrição (72 chars).
+      return (data?.unidades ?? []).map((u: any) => {
+        const nome = this.titleCase(String(u.unidade ?? u.nome ?? u.id ?? ''));
+        const end = u.endereco ? this.titleCase(String(u.endereco)) : '';
+        return {
+          value: String(u.id ?? u.unidadeId ?? ''),
+          label: nome,
+          description: [nome.length > 24 ? nome : '', end].filter(Boolean).join(' — ') || undefined,
+        };
+      });
     }
     if (action === 'especialidades') {
       return (data?.especialidades ?? []).map((e: any) => ({
         value: String(e.id ?? e.especialidadeId ?? ''),
-        label: String(e.nome ?? e.especialidade ?? e.id ?? ''),
+        label: this.titleCase(String(e.nome ?? e.especialidade ?? e.id ?? '')),
       }));
     }
     if (action === 'horarios') {
       return (data?.horarios ?? []).map((h: any) => ({
         value: String(h.id ?? h.agendaId ?? ''),
         label: this.dmyhm(h.dtagenda ?? h.data ?? ''),
-        description: h.especialidade || h.medico || h.profissional || undefined,
+        description: h.medico ? `Dr(a). ${this.titleCase(String(h.medico))}` : (h.especialidade || h.profissional || undefined),
       }));
     }
     if (action === 'consultas') {
