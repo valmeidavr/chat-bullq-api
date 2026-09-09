@@ -141,7 +141,7 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       return {
         nextNodeId: errorNext,
         sendMessages: [
-          { type: 'TEXT', content: { text: 'Não consegui completar agora. Tente novamente ou ligue (24) 2102-1909.' } },
+          { type: 'TEXT', content: { text: 'Não consegui completar essa ação agora. 😕 Tente novamente em instantes.\n\nSe preferir, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.' } },
         ],
         waitForInput: false,
         updatedVariables: { [`${saveAs}_error`]: err?.message || 'erro' },

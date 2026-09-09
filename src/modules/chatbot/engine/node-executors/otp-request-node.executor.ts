@@ -131,7 +131,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
               {
                 type: 'TEXT',
                 content: {
-                  text: `Este WhatsApp não é o número cadastrado${nome} e não consegui enviar o código para o celular cadastrado (${res.masked || '****'}). 📱\n\nPara atualizar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909 - opção 3. 🙂`,
+                  text: `Não consegui enviar o código para o telefone cadastrado${nome} (${res.masked || '****'}). 📱\n\nPara atualizar ou verificar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.`,
                 },
               },
             ],
@@ -159,14 +159,14 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
 
     const msg =
       res.reason === 'rate_limit'
-        ? 'Muitos códigos pedidos para esse CPF. Aguarde 1 hora ou ligue para (24) 2102-1909. 🙂'
+        ? 'Muitas tentativas de acesso para este CPF. ⏳ Aguarde 1 hora e tente novamente.\n\nSe precisar de ajuda agora, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.'
         : res.reason === 'telefone_nao_confere'
-        ? 'Não encontramos um número de celular cadastrado para este CPF. 📱\n\nPara atualizar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909 - opção 3. 🙂'
+        ? 'Não encontramos um número de celular cadastrado para este CPF. 📱\n\nPara atualizar ou verificar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.'
         : res.reason === 'nao_encontrado'
           ? 'Não encontramos um cadastro ativo vinculado a este CPF. 😊\n\nPara atualizar ou verificar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.'
           : res.reason === 'cpf_invalido'
-            ? 'CPF inválido. Digite os 11 números do seu CPF.'
-            : 'Não consegui validar agora. Tente novamente em instantes ou ligue (24) 2102-1909.';
+            ? 'Esse CPF não parece válido. 🤔 Digite os *11 números* do seu CPF, sem pontos ou traços.'
+            : 'Não consegui validar seu cadastro agora. 😕 Tente novamente em instantes.\n\nSe preferir, entre em contato com nossa secretaria pelo telefone (24) 2102-1909, opção 3.';
     return {
       nextNodeId: errorNext,
       sendMessages: [{ type: 'TEXT', content: { text: msg } }],
