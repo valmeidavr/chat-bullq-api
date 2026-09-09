@@ -53,6 +53,19 @@ export class TwilioMessageMapper {
       params.From = toWa(stripWa(cfg.fromNumber));
     }
 
+    // Template (business-initiated / fora das 24h): envia via Content SID.
+    const tpl = message.content as unknown as {
+      contentSid?: string;
+      variables?: Record<string, string>;
+    };
+    if (tpl.contentSid) {
+      params.ContentSid = tpl.contentSid;
+      if (tpl.variables && Object.keys(tpl.variables).length > 0) {
+        params.ContentVariables = JSON.stringify(tpl.variables);
+      }
+      return params;
+    }
+
     const c = message.content;
     const text = c.text ?? c.caption;
     if (text) params.Body = text;
