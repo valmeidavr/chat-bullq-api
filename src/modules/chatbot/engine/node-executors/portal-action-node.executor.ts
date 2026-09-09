@@ -108,6 +108,20 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         if (data.boleto_pdf) msgs.push({ type: 'TEXT', content: { text: `📄 Prefere *boleto*? Baixe aqui: ${data.boleto_pdf}` } });
         return { nextNodeId: successNext, sendMessages: msgs, waitForInput: false, updatedVariables: { [saveAs]: data } };
       }
+      // Agendar: a vaga foi ocupada por outro sistema entre a listagem e o toque
+      // (o portal recusa atomicamente). Aresta 'slot_taken' → re-lista horários.
+      if (action === 'agendar' && failed && /não está mais disponível/i.test(String(data?.error || ''))) {
+        const takenNext = ctx.nodeEdges.find((e) => e.condition === 'slot_taken')?.targetNodeId || errorNext;
+        return {
+          nextNodeId: takenNext,
+          sendMessages: sendAsMessage
+            ? [{ type: 'TEXT', content: { text: '⚠️ Esse horário *acabou de ser ocupado* por outra pessoa. Vou te mostrar os horários que ainda estão livres:' } }]
+            : [],
+          waitForInput: false,
+          updatedVariables: { [saveAs]: data, [`${saveAs}_error`]: 'slot_taken' },
+        };
+      }
+
       const text = sendAsMessage ? this.format(action, data) : '';
       const updated: Record<string, any> = { [saveAs]: data };
       // Ações de LISTA também expõem `<saveAs>Options` (pronto pra menu dinâmico).
@@ -130,6 +144,23 @@ export class PortalActionNodeExecutor implements NodeExecutor {
         updatedVariables: { [`${saveAs}_error`]: err?.message || 'erro' },
       };
     }
+  }
+
+  /**
+   * Título curto da unidade (≤24 chars do WhatsApp): tira o prefixo genérico
+   * ("Centro de Saúde", "Posto Avançado"…) e corta em limite de palavra.
+   * "Centro de Saúde Sebastião Pinheiro Bastos" → "Sebastião Pinheiro".
+   */
+  private shortUnitName(full: string): string {
+    let s = full.replace(/^(centro de sa[uú]de|posto avan[cç]ado|unidade|cl[ií]nica|hospital)\s+/i, '').trim() || full;
+    if (s.length <= 24) return s;
+    const words = s.split(' ');
+    let out = '';
+    for (const w of words) {
+      if ((out + (out ? ' ' : '') + w).length > 24) break;
+      out += (out ? ' ' : '') + w;
+    }
+    return out || s.slice(0, 24);
   }
 
   /** "CENTRO DE SAÚDE X" → "Centro De Saúde X" (preposições curtas em minúsculo). */
@@ -172,12 +203,14 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       // Título do item tem 24 chars no WhatsApp: nome em Título Case; o nome
       // completo + endereço vão na descrição (72 chars).
       return (data?.unidades ?? []).map((u: any) => {
-        const nome = this.titleCase(String(u.unidade ?? u.nome ?? u.id ?? ''));
+        const full = this.titleCase(String(u.unidade ?? u.nome ?? u.id ?? ''));
         const end = u.endereco ? this.titleCase(String(u.endereco)) : '';
+        // Cidade = último trecho depois de " - " no endereço (ex.: "... - Pinheiral").
+        const cidade = end.includes(' - ') ? end.split(' - ').pop() : '';
         return {
           value: String(u.id ?? u.unidadeId ?? ''),
-          label: nome,
-          description: [nome.length > 24 ? nome : '', end].filter(Boolean).join(' — ') || undefined,
+          label: this.shortUnitName(full),
+          description: [full, cidade].filter(Boolean).join(' • ').slice(0, 72) || undefined,
         };
       });
     }

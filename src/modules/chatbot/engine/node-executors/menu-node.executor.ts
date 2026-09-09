@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { NodeExecutor, NodeExecutionContext, NodeExecutionResult } from './node-executor.interface';
 
+type Opt = { label: string; value: string; description?: string };
+
+/** WhatsApp aceita no máx. 10 itens por lista; com paginação: 9 + "Ver mais". */
+const MAX_ROWS = 10;
+const PAGE_SIZE = 9;
+const MORE_ID = '__more__';
+
 @Injectable()
 export class MenuNodeExecutor implements NodeExecutor {
   readonly nodeType = 'MENU';
@@ -11,20 +18,20 @@ export class MenuNodeExecutor implements NodeExecutor {
       header?: string;
       footer?: string;
       buttonText?: string;
-      options: { label: string; value: string; description?: string }[];
+      options: Opt[];
       /** Menu dinâmico: monta as opções a partir de uma variável (lista vinda da API). */
       optionsFrom?: string;
       /** Salva o valor escolhido nesta variável (útil no menu dinâmico p/ o próximo nó). */
       saveAs?: string;
     };
-    const title = d.title;
+    const vars = ctx.session.variables;
+    const title = d.title || 'Escolha uma opção:';
 
     // Menu dinâmico: opções vêm de uma variável (ex.: PORTAL_ACTION que listou
     // especialidades/horários). Normaliza pra {label,value,description}.
     const dynamic = !!d.optionsFrom;
-    const options: { label: string; value: string; description?: string }[] = dynamic
-      ? this.normalize(ctx.session.variables[d.optionsFrom as string])
-      : d.options || [];
+    const options: Opt[] = dynamic ? this.normalize(vars[d.optionsFrom as string]) : d.options || [];
+    const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
 
     if (dynamic && options.length === 0 && !ctx.incomingMessage) {
       // Sem itens → aresta 'empty' se existir (senão a 1ª). O fluxo trata o vazio.
@@ -36,42 +43,39 @@ export class MenuNodeExecutor implements NodeExecutor {
       };
     }
 
-    const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
+    // Paginação (só quando passa de 10): página atual guardada na sessão.
+    const pageKey = `_menuPage_${ctx.session.currentNodeId}`;
+    const paginate = options.length > MAX_ROWS;
+    const pageOf = (pg: number) => {
+      if (!paginate) return { slice: options, hasMore: false };
+      const start = pg * PAGE_SIZE;
+      return { slice: options.slice(start, start + PAGE_SIZE), hasMore: start + PAGE_SIZE < options.length };
+    };
 
-    if (!ctx.incomingMessage) {
-      const lines = [
-        title || 'Escolha uma opção:',
-        '',
-        ...options.map((opt, i) => `${i + 1}. ${opt.label}`),
-      ];
+    const render = (pg: number): NodeExecutionResult => {
+      const { slice, hasMore } = pageOf(pg);
+      const lines = [title, '', ...slice.map((opt, i) => `${i + 1}. ${opt.label}`)];
+      if (hasMore) lines.push(`${slice.length + 1}. Ver mais ▶`);
       if (canGoBack) lines.push('0. Voltar');
-      const menuText = lines.join('\n');
+      if (paginate) lines.push('', `Página ${pg + 1} de ${Math.ceil(options.length / PAGE_SIZE)}`);
 
-      // Descritor de UI nativa (WhatsApp): o adapter que suportar (Twilio →
+      // Descritor de UI nativa (WhatsApp): o adapter que suportar (Twilio/Meta →
       // botões/lista) renderiza isso; os demais canais usam o `text` acima.
-      // WhatsApp aceita no máx. 10 itens por lista. Se couber, inclui "Voltar";
-      // se a lista já tiver 10 opções reais, o Voltar fica só no texto (digitar
-      // "voltar"/"menu" continua funcionando pelo engine).
-      const MAX_ROWS = 10;
-      const nativeOptions = options.slice(0, MAX_ROWS).map((o) => ({
-        id: o.value,
-        title: o.label,
-        description: o.description,
-      }));
+      const nativeOptions = slice.map((o) => ({ id: o.value, title: o.label, description: o.description }));
+      if (hasMore) nativeOptions.push({ id: MORE_ID, title: 'Ver mais ▶', description: `Página ${pg + 2}` });
       if (canGoBack && nativeOptions.length < MAX_ROWS) {
         nativeOptions.push({ id: 'voltar', title: '⬅️ Voltar', description: undefined });
       }
-
       return {
         nextNodeId: null,
         sendMessages: [
           {
             type: 'TEXT',
             content: {
-              text: menuText,
+              text: lines.join('\n'),
               interactiveMenu: {
                 header: d.header,
-                body: title || 'Escolha uma opção:',
+                body: title,
                 footer: d.footer,
                 buttonText: d.buttonText,
                 options: nativeOptions,
@@ -80,12 +84,24 @@ export class MenuNodeExecutor implements NodeExecutor {
           },
         ],
         waitForInput: true,
+        updatedVariables: { [pageKey]: pg },
       };
-    }
+    };
+
+    // Entrada no nó (sem resposta pendente): renderiza a 1ª página.
+    if (!ctx.incomingMessage) return render(0);
 
     const input = ctx.incomingMessage.trim();
+    const page = Number(vars[pageKey]) || 0;
+    const { slice, hasMore } = pageOf(page);
+
+    // "Ver mais" (toque no item ou número da posição) → próxima página.
+    if (hasMore && (input === MORE_ID || parseInt(input, 10) === slice.length + 1)) {
+      return render(page + 1);
+    }
+
     const selectedIndex = parseInt(input, 10) - 1;
-    const selectedByNumber = options[selectedIndex];
+    const selectedByNumber = slice[selectedIndex];
     const selectedByValue = options.find(
       (o) => o.value.toLowerCase() === input.toLowerCase() || o.label.toLowerCase() === input.toLowerCase(),
     );
@@ -112,16 +128,16 @@ export class MenuNodeExecutor implements NodeExecutor {
         ctx.nodeEdges[0]?.targetNodeId ||
         null;
 
-    const updatedVariables: Record<string, any> = { lastMenuSelection: selected.value };
+    const updatedVariables: Record<string, any> = { lastMenuSelection: selected.value, [pageKey]: 0 };
     if (d.saveAs) updatedVariables[d.saveAs] = selected.value;
 
     return { nextNodeId, sendMessages: [], waitForInput: false, updatedVariables };
   }
 
   /** Normaliza uma lista qualquer em opções de menu {label,value,description}. */
-  private normalize(v: any): { label: string; value: string; description?: string }[] {
+  private normalize(v: any): Opt[] {
     if (!Array.isArray(v)) return [];
-    const out: { label: string; value: string; description?: string }[] = [];
+    const out: Opt[] = [];
     for (const o of v) {
       if (o == null) continue;
       const value = String(o.value ?? o.id ?? o.agendaId ?? o.consultaId ?? '');
@@ -129,7 +145,6 @@ export class MenuNodeExecutor implements NodeExecutor {
       const label = String(o.label ?? o.title ?? o.nome ?? o.especialidade ?? o.unidade ?? value);
       const description = o.description ?? o.detalhe ?? o.subtitle;
       out.push(description ? { label, value, description: String(description) } : { label, value });
-      if (out.length >= 10) break;
     }
     return out;
   }
