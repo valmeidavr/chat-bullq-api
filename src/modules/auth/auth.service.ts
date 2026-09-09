@@ -1,5 +1,6 @@
 import {
   Injectable,
+  ForbiddenException,
   UnauthorizedException,
   ConflictException,
   BadRequestException,
@@ -36,12 +37,16 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
-    // Check if registering via invitation
-    if (dto.inviteToken) {
-      return this.registerWithInvite(dto, hashedPassword);
+    // Cadastro público DESATIVADO: criar workspace/organização pela web ficaria
+    // aberto a qualquer um. Só é possível se cadastrar por CONVITE de um
+    // OWNER/ADMIN (settings → membros). Pra recriar o 1º workspace, use um
+    // seed/manual no banco.
+    if (!dto.inviteToken) {
+      throw new ForbiddenException(
+        'Cadastro público desativado. Peça um convite ao administrador.',
+      );
     }
-
-    return this.registerNewWorkspace(dto, hashedPassword);
+    return this.registerWithInvite(dto, hashedPassword);
   }
 
   private async registerNewWorkspace(dto: RegisterDto, hashedPassword: string) {

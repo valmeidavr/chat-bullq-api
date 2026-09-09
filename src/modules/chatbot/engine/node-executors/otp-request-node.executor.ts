@@ -131,7 +131,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
               {
                 type: 'TEXT',
                 content: {
-                  text: `Este WhatsApp não é o número cadastrado${nome} e não consegui enviar o código para o celular cadastrado (${res.masked || '****'}). Ligue para (24) 2102-1909 que a secretaria te ajuda. 🙂`,
+                  text: `Este WhatsApp não é o número cadastrado${nome} e não consegui enviar o código para o celular cadastrado (${res.masked || '****'}). 📱\n\nPara atualizar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909 - opção 3. 🙂`,
                 },
               },
             ],
@@ -161,7 +161,7 @@ export class OtpRequestNodeExecutor implements NodeExecutor {
       res.reason === 'rate_limit'
         ? 'Muitos códigos pedidos para esse CPF. Aguarde 1 hora ou ligue para (24) 2102-1909. 🙂'
         : res.reason === 'telefone_nao_confere'
-        ? 'Não encontrei um celular cadastrado para esse CPF. Ligue para (24) 2102-1909 que a secretaria atualiza seu cadastro. 🙂'
+        ? 'Não encontramos um número de celular cadastrado para este CPF. 📱\n\nPara atualizar seu cadastro, entre em contato com nossa secretaria pelo telefone (24) 2102-1909 - opção 3. 🙂'
         : res.reason === 'nao_encontrado'
           ? 'Não encontrei um cadastro ativo com esse CPF. Confira o número ou fale com a AAP-VR: (24) 2102-1909.'
           : res.reason === 'cpf_invalido'
