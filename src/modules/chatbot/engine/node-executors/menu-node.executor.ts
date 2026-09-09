@@ -12,9 +12,28 @@ export class MenuNodeExecutor implements NodeExecutor {
       footer?: string;
       buttonText?: string;
       options: { label: string; value: string; description?: string }[];
+      /** Menu dinâmico: monta as opções a partir de uma variável (lista vinda da API). */
+      optionsFrom?: string;
+      /** Salva o valor escolhido nesta variável (útil no menu dinâmico p/ o próximo nó). */
+      saveAs?: string;
     };
-    const { options } = d;
     const title = d.title;
+
+    // Menu dinâmico: opções vêm de uma variável (ex.: PORTAL_ACTION que listou
+    // especialidades/horários). Normaliza pra {label,value,description}.
+    const dynamic = !!d.optionsFrom;
+    const options: { label: string; value: string; description?: string }[] = dynamic
+      ? this.normalize(ctx.session.variables[d.optionsFrom as string])
+      : d.options || [];
+
+    if (dynamic && options.length === 0 && !ctx.incomingMessage) {
+      // Sem itens disponíveis → segue pela aresta (o fluxo trata o "vazio").
+      return {
+        nextNodeId: ctx.nodeEdges[0]?.targetNodeId || null,
+        sendMessages: [{ type: 'TEXT', content: { text: d.footer || 'Nada disponível no momento.' } }],
+        waitForInput: false,
+      };
+    }
 
     const canGoBack = (ctx.session.menuHistory?.length ?? 0) > 0;
 
@@ -78,14 +97,33 @@ export class MenuNodeExecutor implements NodeExecutor {
       };
     }
 
-    const matchingEdge = ctx.nodeEdges.find((e) => e.condition === selected.value);
-    const nextNodeId = matchingEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null;
+    // Menu dinâmico: sem ramificar por condição — salva a escolha e segue.
+    // Menu estático: ramifica pela aresta cuja condição = value da opção.
+    const nextNodeId = dynamic
+      ? ctx.nodeEdges[0]?.targetNodeId || null
+      : ctx.nodeEdges.find((e) => e.condition === selected.value)?.targetNodeId ||
+        ctx.nodeEdges[0]?.targetNodeId ||
+        null;
 
-    return {
-      nextNodeId,
-      sendMessages: [],
-      waitForInput: false,
-      updatedVariables: { lastMenuSelection: selected.value },
-    };
+    const updatedVariables: Record<string, any> = { lastMenuSelection: selected.value };
+    if (d.saveAs) updatedVariables[d.saveAs] = selected.value;
+
+    return { nextNodeId, sendMessages: [], waitForInput: false, updatedVariables };
+  }
+
+  /** Normaliza uma lista qualquer em opções de menu {label,value,description}. */
+  private normalize(v: any): { label: string; value: string; description?: string }[] {
+    if (!Array.isArray(v)) return [];
+    const out: { label: string; value: string; description?: string }[] = [];
+    for (const o of v) {
+      if (o == null) continue;
+      const value = String(o.value ?? o.id ?? o.agendaId ?? o.consultaId ?? '');
+      if (!value) continue;
+      const label = String(o.label ?? o.title ?? o.nome ?? o.especialidade ?? o.unidade ?? value);
+      const description = o.description ?? o.detalhe ?? o.subtitle;
+      out.push(description ? { label, value, description: String(description) } : { label, value });
+      if (out.length >= 10) break;
+    }
+    return out;
   }
 }

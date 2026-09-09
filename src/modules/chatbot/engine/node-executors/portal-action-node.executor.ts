@@ -94,11 +94,15 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       // Ações que retornam {ok:false,error} do portal contam como erro.
       const failed = data && data.ok === false;
       const text = sendAsMessage ? this.format(action, data) : '';
+      const updated: Record<string, any> = { [saveAs]: data };
+      // Ações de LISTA também expõem `<saveAs>Options` (pronto pra menu dinâmico).
+      const opts = this.optionsFor(action, data);
+      if (opts) updated[`${saveAs}Options`] = opts;
       return {
         nextNodeId: failed ? errorNext : successNext,
         sendMessages: text ? [{ type: 'TEXT', content: { text } }] : [],
         waitForInput: false,
-        updatedVariables: { [saveAs]: data },
+        updatedVariables: updated,
       };
     } catch (err: any) {
       this.logger.warn(`PORTAL_ACTION ${action} falhou: ${err?.message}`);
@@ -123,6 +127,38 @@ export class PortalActionNodeExecutor implements NodeExecutor {
   private dmyhm(v: string): string {
     const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : String(v);
+  }
+
+  /** Converte listas do portal em opções de menu {value,label,description}. */
+  private optionsFor(action: PortalAction, data: any): { value: string; label: string; description?: string }[] | null {
+    if (action === 'unidades') {
+      return (data?.unidades ?? []).map((u: any) => ({
+        value: String(u.id ?? u.unidadeId ?? ''),
+        label: String(u.unidade ?? u.nome ?? u.id ?? ''),
+        description: u.endereco || undefined,
+      }));
+    }
+    if (action === 'especialidades') {
+      return (data?.especialidades ?? []).map((e: any) => ({
+        value: String(e.id ?? e.especialidadeId ?? ''),
+        label: String(e.nome ?? e.especialidade ?? e.id ?? ''),
+      }));
+    }
+    if (action === 'horarios') {
+      return (data?.horarios ?? []).map((h: any) => ({
+        value: String(h.id ?? h.agendaId ?? ''),
+        label: this.dmyhm(h.dtagenda ?? h.data ?? ''),
+        description: h.especialidade || h.medico || h.profissional || undefined,
+      }));
+    }
+    if (action === 'consultas') {
+      return (data?.consultas ?? []).map((c: any) => ({
+        value: String(c.id ?? ''),
+        label: `${c.especialidade ?? 'Consulta'} — ${this.dmyhm(c.dtagenda ?? '')}`,
+        description: c.unidade || undefined,
+      }));
+    }
+    return null;
   }
 
   private format(action: PortalAction, data: any): string {
