@@ -306,18 +306,21 @@ export class InboundMessageProcessor extends WorkerHost {
         where: { id: channelId },
         select: { config: true },
       });
-      const mode: 'FLOW' | 'AI' | 'FLOW_THEN_AI' =
+      const mode: 'FLOW' | 'AI' | 'FLOW_THEN_AI' | 'FLOW_WITH_AI' =
         ((chan?.config as Record<string, any>)?.atendimentoMode as any) ||
         (hasActiveBot ? 'FLOW_THEN_AI' : 'AI');
 
-      // Só Fluxo → o fluxo é sempre o dono enquanto ativo (ignora handoff).
-      // Fluxo→IA → dono até o handoff. Só IA → fluxo nunca é dono.
+      // FLOW / FLOW_WITH_AI → fluxo sempre dono enquanto ativo. FLOW_THEN_AI →
+      // dono até o handoff. AI → fluxo nunca é dono.
       const flowOwns =
         mode === 'AI'
           ? false
-          : hasActiveBot && (mode === 'FLOW' ? true : !flowHandoffToAi);
-      // No modo "Só Fluxo", a IA nunca dispara (nem quando o fluxo termina).
-      const aiAllowed = mode !== 'FLOW';
+          : hasActiveBot &&
+            (mode === 'FLOW' || mode === 'FLOW_WITH_AI' ? true : !flowHandoffToAi);
+      // Agente de IA externo só dispara em AI ou FLOW_THEN_AI (após handoff).
+      // Em FLOW_WITH_AI a IA é a "de apoio" dentro do próprio fluxo.
+      const aiAllowed = mode === 'AI' || mode === 'FLOW_THEN_AI';
+      const aiAssist = mode === 'FLOW_WITH_AI';
 
       if (flowOwns) {
         if (status === ConversationStatus.PENDING) {
@@ -334,6 +337,7 @@ export class InboundMessageProcessor extends WorkerHost {
             contactExternalId: message.externalContactId,
             organizationId,
             messageText: (message.content as any)?.text || '',
+            aiAssist,
           },
           {
             attempts: 3,

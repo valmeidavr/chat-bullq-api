@@ -8,6 +8,8 @@ export interface NodeExecutionContext {
   conversationId: string;
   channelId: string;
   contactExternalId: string;
+  /** Modo "Fluxo + IA juntos": menu aceita perguntas livres (IA de apoio). */
+  aiAssist?: boolean;
 }
 
 export interface NodeExecutionResult {
@@ -19,6 +21,12 @@ export interface NodeExecutionResult {
   transferDepartmentId?: string;
   /** Entrega a conversa pra IA assumir (encerra o fluxo). */
   handoffToAi?: boolean;
+  /**
+   * Modo "Fluxo + IA juntos": o usuário escreveu algo que não é opção do menu.
+   * O engine chama a IA de apoio com este texto, envia a resposta e re-exibe o
+   * menu (em vez de "opção inválida").
+   */
+  aiAssistText?: string;
 }
 
 export interface NodeExecutor {

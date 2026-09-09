@@ -12,6 +12,7 @@ interface ChatbotJobData {
   contactExternalId: string;
   organizationId: string;
   messageText: string;
+  aiAssist?: boolean;
 }
 
 @Processor('chatbot-processor', { concurrency: 5 })
@@ -27,13 +28,14 @@ export class ChatbotProcessor extends WorkerHost {
   }
 
   async process(job: Job<ChatbotJobData>): Promise<any> {
-    const { conversationId, channelId, contactExternalId, organizationId, messageText } = job.data;
+    const { conversationId, channelId, contactExternalId, organizationId, messageText, aiAssist } = job.data;
 
     const result = await this.engine.processMessage(
       conversationId,
       channelId,
       contactExternalId,
       messageText,
+      { aiAssist: !!aiAssist },
     );
 
     // Envia na MESMA ordem em que o fluxo produziu (resultado antes, menu por

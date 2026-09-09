@@ -61,6 +61,7 @@ export class ChatbotEngineService {
     channelId: string,
     contactExternalId: string,
     incomingText: string,
+    opts: { aiAssist?: boolean } = {},
   ): Promise<EngineResult> {
     const allMessages: EngineResult['messages'] = [];
     let transferToHuman = false;
@@ -168,6 +169,7 @@ export class ChatbotEngineService {
         conversationId,
         channelId,
         contactExternalId,
+        aiAssist: opts.aiAssist,
       };
 
       const result = await executor.execute(ctx);
@@ -175,6 +177,31 @@ export class ChatbotEngineService {
 
       if (result.updatedVariables) {
         Object.assign(session.variables, result.updatedVariables);
+      }
+
+      // "Fluxo + IA juntos": pergunta fora do menu → IA de apoio responde e o
+      // menu é re-exibido. Usa o 1º nó de IA do fluxo como config (agente/trava).
+      if (result.aiAssistText) {
+        const aiNode = flow.nodes.find((n) => n.type === 'AI');
+        const aiExec = this.executors.get('AI');
+        if (aiNode && aiExec) {
+          const assist = await aiExec.execute({
+            ...ctx,
+            nodeData: { ...(aiNode.data as any), conversation: false, prompt: '', sendAsMessage: true },
+            nodeEdges: [],
+            incomingMessage: result.aiAssistText,
+          });
+          allMessages.push(...assist.sendMessages);
+        }
+        // Re-exibe o menu atual (render mode) e continua aguardando input.
+        const rerender = await executor.execute({ ...ctx, incomingMessage: undefined });
+        allMessages.push(...rerender.sendMessages);
+        await this.sessionService.update(conversationId, {
+          currentNodeId,
+          waitingForInput: true,
+          variables: session.variables,
+        });
+        return { messages: allMessages, transferToHuman: false, sessionEnded: false };
       }
 
       if (result.transferToHuman) {

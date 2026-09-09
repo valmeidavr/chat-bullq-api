@@ -66,6 +66,11 @@ export class MenuNodeExecutor implements NodeExecutor {
     const selected = selectedByNumber || selectedByValue;
 
     if (!selected) {
+      // Modo "Fluxo + IA juntos": em vez de "opção inválida", deixa a IA de
+      // apoio responder a pergunta solta e o engine re-exibe o menu.
+      if (ctx.aiAssist) {
+        return { nextNodeId: null, sendMessages: [], waitForInput: true, aiAssistText: input };
+      }
       return {
         nextNodeId: null,
         sendMessages: [{ type: 'TEXT', content: { text: 'Opção inválida. Tente novamente.' } }],
