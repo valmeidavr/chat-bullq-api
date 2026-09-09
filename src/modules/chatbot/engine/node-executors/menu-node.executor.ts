@@ -23,6 +23,8 @@ export class MenuNodeExecutor implements NodeExecutor {
       optionsFrom?: string;
       /** Salva o valor escolhido nesta variável (útil no menu dinâmico p/ o próximo nó). */
       saveAs?: string;
+      /** Mensagem enviada SÓ quando a lista dinâmica vem vazia (não é rodapé). */
+      emptyMessage?: string;
     };
     const vars = ctx.session.variables;
     const title = d.title || 'Escolha uma opção:';
@@ -38,7 +40,7 @@ export class MenuNodeExecutor implements NodeExecutor {
       const emptyEdge = ctx.nodeEdges.find((e) => e.condition === 'empty');
       return {
         nextNodeId: emptyEdge?.targetNodeId || ctx.nodeEdges[0]?.targetNodeId || null,
-        sendMessages: [{ type: 'TEXT', content: { text: d.footer || 'Nada disponível no momento.' } }],
+        sendMessages: [{ type: 'TEXT', content: { text: d.emptyMessage || 'Nada disponível no momento.' } }],
         waitForInput: false,
       };
     }
