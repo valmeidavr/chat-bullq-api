@@ -73,6 +73,57 @@ export class WhatsAppOfficialMessageMapper {
       base.context = { message_id: message.replyTo.externalMessageId };
     }
 
+    // Menu nativo do chatbot (nó MENU): a Cloud API da Meta suporta botões (≤3)
+    // e lista (4–10) em sessão, SEM template. O id da opção volta no toque
+    // (button_reply/list_reply) e o nó MENU casa pelo value.
+    const menu = message.content.interactiveMenu;
+    if (menu && menu.options?.length && menu.options.length <= 10) {
+      const body = { text: (menu.body || 'Escolha uma opção:').slice(0, 1024) };
+      const header = menu.header ? { type: 'text', text: menu.header.slice(0, 60) } : undefined;
+      const footer = menu.footer ? { text: menu.footer.slice(0, 60) } : undefined;
+      if (menu.options.length <= 3) {
+        return {
+          ...base,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            ...(header ? { header } : {}),
+            body,
+            ...(footer ? { footer } : {}),
+            action: {
+              buttons: menu.options.slice(0, 3).map((o) => ({
+                type: 'reply',
+                reply: { id: o.id.slice(0, 256), title: o.title.slice(0, 20) },
+              })),
+            },
+          },
+        };
+      }
+      return {
+        ...base,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          ...(header ? { header } : {}),
+          body,
+          ...(footer ? { footer } : {}),
+          action: {
+            button: (menu.buttonText || 'Ver opções').slice(0, 20),
+            sections: [
+              {
+                title: 'Opções',
+                rows: menu.options.slice(0, 10).map((o) => ({
+                  id: o.id.slice(0, 200),
+                  title: o.title.slice(0, 24),
+                  ...(o.description ? { description: o.description.slice(0, 72) } : {}),
+                })),
+              },
+            ],
+          },
+        },
+      };
+    }
+
     switch (message.type) {
       case MessageContentType.TEXT:
         return { ...base, type: 'text', text: { body: message.content.text } };

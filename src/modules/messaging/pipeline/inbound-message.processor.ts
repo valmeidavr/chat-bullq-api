@@ -336,7 +336,13 @@ export class InboundMessageProcessor extends WorkerHost {
             channelId,
             contactExternalId: message.externalContactId,
             organizationId,
-            messageText: (message.content as any)?.text || '',
+            // Toque em botão/lista (Meta/Twilio/Zappfy) → usa o ID da opção,
+            // assim o nó MENU casa pelo `value` em qualquer canal.
+            messageText:
+              (message.content as any)?.interactive?.listRowId ||
+              (message.content as any)?.interactive?.buttonId ||
+              (message.content as any)?.text ||
+              '',
             aiAssist,
           },
           {
