@@ -15,6 +15,8 @@ import { ZappfyHttpClient } from '../adapters/zappfy/zappfy.http-client';
 import { WhatsAppOfficialHttpClient } from '../adapters/whatsapp-official/whatsapp-official.http-client';
 import { InstagramHttpClient } from '../adapters/instagram/instagram.http-client';
 import { GmailHttpClient } from '../adapters/gmail/gmail.http-client';
+import { TwilioHttpClient } from '../adapters/twilio/twilio.http-client';
+import { EvolutionHttpClient } from '../adapters/evolution/evolution.http-client';
 import { ChannelSyncOrchestrator } from '../sync/channel-sync.orchestrator';
 import {
   ChannelAccessService,
@@ -32,6 +34,8 @@ export class ChannelsService {
     private readonly waOfficialHttpClient: WhatsAppOfficialHttpClient,
     private readonly instagramHttpClient: InstagramHttpClient,
     private readonly gmailHttpClient: GmailHttpClient,
+    private readonly twilioHttpClient: TwilioHttpClient,
+    private readonly evolutionHttpClient: EvolutionHttpClient,
     private readonly syncOrchestrator: ChannelSyncOrchestrator,
     private readonly prisma: PrismaService,
     private readonly channelAccess: ChannelAccessService,
@@ -379,6 +383,21 @@ export class ChannelsService {
               historyId: profile.historyId,
             },
           };
+        }
+
+        case ChannelType.WHATSAPP_TWILIO: {
+          const acc = await this.twilioHttpClient.verifyAccount(channel);
+          return {
+            success: true,
+            status: (acc?.status as string) || 'connected',
+            data: { friendlyName: acc?.friendly_name, accountStatus: acc?.status },
+          };
+        }
+
+        case ChannelType.WHATSAPP_EVOLUTION: {
+          const st = await this.evolutionHttpClient.connectionState(channel);
+          const state = st?.instance?.state || st?.state || 'connected';
+          return { success: true, status: String(state), data: st };
         }
 
         default:

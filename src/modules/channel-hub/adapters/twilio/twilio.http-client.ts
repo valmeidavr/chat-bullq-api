@@ -52,6 +52,16 @@ export class TwilioHttpClient {
     }
   }
 
+  /** Valida as credenciais buscando os dados da conta. */
+  async verifyAccount(channel: Channel): Promise<any> {
+    const { accountSid, authToken } = this.cfg(channel);
+    const { data } = await axios.get(
+      `${TwilioHttpClient.BASE_URL}/Accounts/${accountSid}.json`,
+      { auth: { username: accountSid, password: authToken }, timeout: 20000 },
+    );
+    return data;
+  }
+
   /** Baixa mídia de uma URL do Twilio (exige Basic auth da conta). */
   async downloadMedia(channel: Channel, mediaUrl: string): Promise<Buffer> {
     const { accountSid, authToken } = this.cfg(channel);

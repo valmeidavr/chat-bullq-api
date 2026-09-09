@@ -41,6 +41,13 @@ export class EvolutionHttpClient {
     }
   }
 
+  /** Estado da conexão da instância (valida baseUrl/apiKey/instance). */
+  async connectionState(channel: Channel): Promise<any> {
+    const { instance } = this.cfg(channel);
+    const { data } = await this.client(channel).get(`/instance/connectionState/${instance}`);
+    return data;
+  }
+
   async downloadMedia(_channel: Channel, mediaUrl: string): Promise<Buffer> {
     const { data } = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 30000 });
     return Buffer.from(data);
