@@ -12,6 +12,7 @@ type PortalAction =
   | 'unidades'
   | 'especialidades'
   | 'horarios'
+  | 'horarios_dia'
   | 'agendar'
   | 'consultas'
   | 'confirmar'
@@ -77,7 +78,21 @@ export class PortalActionNodeExecutor implements NodeExecutor {
           data = await this.portal.especialidades(num(d.unidadeVar || 'unidadeId'));
           break;
         case 'horarios':
-          data = await this.portal.horarios(num(d.unidadeVar || 'unidadeId'), num(d.especialidadeVar || 'especialidadeId'));
+        case 'horarios_dia':
+          data = await this.portal.horarios(
+            num(d.unidadeVar || 'unidadeId'),
+            num(d.especialidadeVar || 'especialidadeId'),
+          );
+          if (action === 'horarios_dia') {
+            // Filtra pelo dia escolhido — busca fresca, sem cache de sessão.
+            const dia = String(vars[d.diaVar || 'diaEscolhido'] ?? '');
+            data = {
+              ...data,
+              horarios: (data?.horarios ?? []).filter(
+                (h: any) => String(h.dtagenda ?? '').slice(0, 10) === dia,
+              ),
+            };
+          }
           break;
         case 'agendar':
           data = await this.portal.agendar(cpf!, num(d.agendaVar || 'agendaId'));
@@ -184,6 +199,14 @@ export class PortalActionNodeExecutor implements NodeExecutor {
     const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
     return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v);
   }
+  /** "01/10/2026" → "Qua," (abreviado, cabe no título da lista). */
+  private diaSemana(dmy: string): string {
+    const m = String(dmy).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!m) return '';
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return ['Dom,', 'Seg,', 'Ter,', 'Qua,', 'Qui,', 'Sex,', 'Sáb,'][d.getDay()] ?? '';
+  }
+
   private dmyhm(v: string): string {
     const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : String(v);
@@ -224,10 +247,24 @@ export class PortalActionNodeExecutor implements NodeExecutor {
       }));
     }
     if (action === 'horarios') {
+      // Agrupa por DIA: com até 200 horários, escolher a data primeiro é o
+      // único caminho usável. O `value` é o dia (dd/mm/aaaa).
+      const porDia = new Map<string, number>();
+      for (const h of (data?.horarios ?? []) as any[]) {
+        const dia = String(h.dtagenda ?? '').slice(0, 10);
+        if (dia) porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+      }
+      return [...porDia.entries()].map(([dia, n]) => ({
+        value: dia,
+        label: `${this.diaSemana(dia)} ${dia.slice(0, 5)}`.trim(),
+        description: `${n} horário${n > 1 ? 's' : ''} livre${n > 1 ? 's' : ''}`,
+      }));
+    }
+    if (action === 'horarios_dia') {
       return (data?.horarios ?? []).map((h: any) => ({
         value: String(h.id ?? h.agendaId ?? ''),
-        label: this.dmyhm(h.dtagenda ?? h.data ?? ''),
-        description: h.medico ? `Dr(a). ${this.titleCase(String(h.medico))}` : (h.especialidade || h.profissional || undefined),
+        label: String(h.dtagenda ?? '').slice(11, 16) || this.dmyhm(h.dtagenda ?? ''),
+        description: h.medico ? `Dr(a). ${this.titleCase(String(h.medico))}` : undefined,
       }));
     }
     if (action === 'consultas') {

@@ -10,6 +10,7 @@ import type { FlowRequest } from './whatsapp-flow-crypto.service';
 const SCREEN = {
   UNIDADE: 'ESCOLHER_UNIDADE',
   ESPECIALIDADE: 'ESCOLHER_ESPECIALIDADE',
+  DIA: 'ESCOLHER_DIA',
   HORARIO: 'ESCOLHER_HORARIO',
   SUCCESS: 'SUCCESS',
 } as const;
@@ -78,9 +79,15 @@ export class WhatsAppFlowService {
         case SCREEN.UNIDADE:
           return await this.screenEspecialidades(String(data.unidade ?? ''));
         case SCREEN.ESPECIALIDADE:
+          return await this.screenDias(
+            String(data.unidade ?? ''),
+            String(data.especialidade ?? ''),
+          );
+        case SCREEN.DIA:
           return await this.screenHorarios(
             String(data.unidade ?? ''),
             String(data.especialidade ?? ''),
+            String(data.dia ?? ''),
           );
         case SCREEN.HORARIO:
           return await this.confirmar(cpf, data);
@@ -119,25 +126,61 @@ export class WhatsAppFlowService {
     return { screen: SCREEN.ESPECIALIDADE, data: { unidade: unidadeId, especialidades } };
   }
 
-  private async screenHorarios(
+  /** Passo do DIA: uma especialidade pode ter 200 horários — agrupa por data. */
+  private async screenDias(
     unidadeId: string,
     especialidadeId: string,
   ): Promise<Record<string, any>> {
     const r: any = await this.portal.horarios(Number(unidadeId), Number(especialidadeId));
     const lista = (r?.horarios ?? []) as any[];
     if (!lista.length) {
-      return this.errorScreen('Sem horários livres nesta especialidade agora. Tente outra data ou especialidade.');
+      return this.errorScreen('Sem horários livres nesta especialidade agora. Tente outra especialidade.');
     }
-    // O Flow mostra tudo numa tela só (limite generoso do componente).
-    const horarios: Item[] = lista.slice(0, 100).map((h: any) => ({
+    const porDia = new Map<string, number>();
+    for (const h of lista) {
+      const dia = String(h.dtagenda ?? '').slice(0, 10);
+      if (dia) porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+    }
+    const dias: Item[] = [...porDia.entries()].map(([dia, n]) => ({
+      id: dia,
+      title: `${this.diaSemana(dia)} ${dia}`.trim().slice(0, 30),
+      description: `${n} horário${n > 1 ? 's' : ''} livre${n > 1 ? 's' : ''}`,
+    }));
+    return {
+      screen: SCREEN.DIA,
+      data: { unidade: unidadeId, especialidade: especialidadeId, dias },
+    };
+  }
+
+  private async screenHorarios(
+    unidadeId: string,
+    especialidadeId: string,
+    dia: string,
+  ): Promise<Record<string, any>> {
+    const r: any = await this.portal.horarios(Number(unidadeId), Number(especialidadeId));
+    const lista = ((r?.horarios ?? []) as any[]).filter(
+      (h) => String(h.dtagenda ?? '').slice(0, 10) === dia,
+    );
+    if (!lista.length) {
+      return this.errorScreen('Esse dia ficou sem horários. Escolha outro dia.');
+    }
+    const horarios: Item[] = lista.map((h: any) => ({
       id: String(h.id),
-      title: String(h.dtagenda ?? '').slice(0, 30),
+      title: String(h.dtagenda ?? '').slice(11, 16),
       description: h.medico ? `Dr(a). ${this.titleCase(String(h.medico))}`.slice(0, 60) : undefined,
     }));
     return {
       screen: SCREEN.HORARIO,
-      data: { unidade: unidadeId, especialidade: especialidadeId, horarios },
+      data: { unidade: unidadeId, especialidade: especialidadeId, dia, horarios },
     };
+  }
+
+  /** "01/10/2026" → "Qua," */
+  private diaSemana(dmy: string): string {
+    const m = String(dmy).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!m) return '';
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return ['Dom,', 'Seg,', 'Ter,', 'Qua,', 'Qui,', 'Sex,', 'Sáb,'][d.getDay()] ?? '';
   }
 
   /** Confirmação: chama o MESMO endpoint do site (todas as regras valem). */
@@ -170,6 +213,7 @@ export class WhatsAppFlowService {
       const refreshed = await this.screenHorarios(
         String(data.unidade ?? ''),
         String(data.especialidade ?? ''),
+        String(data.dia ?? ''),
       );
       if (refreshed.screen === SCREEN.HORARIO) {
         refreshed.data = {
