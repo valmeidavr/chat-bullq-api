@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -20,8 +20,11 @@ export class AuthController {
 
   @Post('login')
   @ApiOperation({ summary: 'Login with email/password' })
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: any) {
+    // IP real atrás do proxy (Traefik/ngrok) — usado só pela trava anti-brute-force.
+    const fwd = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+    const ip = fwd || req?.ip || req?.socket?.remoteAddress || 'unknown';
+    return this.authService.login(dto, ip);
   }
 
   @Post('refresh')

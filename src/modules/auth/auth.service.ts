@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { LoginRateLimitService } from './login-rate-limit.service';
 import { ConfigService } from '@nestjs/config';
 import type { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
@@ -23,6 +24,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly loginGuard: LoginRateLimitService,
     private readonly config: ConfigService,
   ) {}
 
@@ -226,19 +228,26 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ip = 'unknown') {
+    // Trava de força bruta ANTES de tocar no banco/bcrypt.
+    await this.loginGuard.assertAllowed(dto.email, ip);
+
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
 
     if (!user) {
+      await this.loginGuard.registerFailure(dto.email, ip);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordValid = await bcrypt.compare(dto.password, user.password);
     if (!passwordValid) {
+      await this.loginGuard.registerFailure(dto.email, ip);
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    await this.loginGuard.registerSuccess(dto.email);
 
     if (!user.isActive) {
       throw new UnauthorizedException('Account is deactivated');

@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { ApiKeyStrategy } from './api-key.strategy';
+import { LoginRateLimitService } from './login-rate-limit.service';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 @Module({
@@ -24,7 +25,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     ApiKeysModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, ApiKeyStrategy],
+  providers: [AuthService, JwtStrategy, ApiKeyStrategy, LoginRateLimitService],
   exports: [AuthService],
 })
 export class AuthModule {}
