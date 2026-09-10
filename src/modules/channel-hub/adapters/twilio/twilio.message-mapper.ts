@@ -107,6 +107,20 @@ export class TwilioMessageMapper {
     // Toque em botão (quick-reply) ou item de lista (list-picker): o Twilio
     // manda o id da opção em ButtonPayload/ListId. Usamos como texto pra o nó
     // MENU casar pelo `value`. Mantém o título em `Body` como fallback.
+    // Resposta de WhatsApp Flow: o Twilio manda os campos submetidos em
+    // InteractiveData (JSON). Já agendamos dentro do endpoint do Flow — aqui
+    // só destravamos o fluxo com um texto curto.
+    if (b.InteractiveData) {
+      try {
+        const parsed = JSON.parse(b.InteractiveData);
+        const p = parsed?.params ?? parsed ?? {};
+        content.text = String(p.status || 'flow_respondido');
+        content.interactive = { type: 'flow' };
+      } catch {
+        content.text = 'flow_respondido';
+      }
+    }
+
     const picked = b.ButtonPayload || b.ListId || '';
     if (picked) {
       content.text = picked;

@@ -94,6 +94,7 @@ enum ChatbotNodeType {
   OTP_REQUEST
   OTP_VERIFY
   PORTAL_ACTION
+  FLOW
 }
 
 enum NotificationType {

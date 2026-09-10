@@ -19,6 +19,7 @@ import { HandoffAiNodeExecutor } from './node-executors/handoff-ai-node.executor
 import { OtpRequestNodeExecutor } from './node-executors/otp-request-node.executor';
 import { OtpVerifyNodeExecutor } from './node-executors/otp-verify-node.executor';
 import { PortalActionNodeExecutor } from './node-executors/portal-action-node.executor';
+import { FlowNodeExecutor } from './node-executors/flow-node.executor';
 
 export interface EngineResult {
   messages: { type: string; content: Record<string, any> }[];
@@ -49,6 +50,7 @@ export class ChatbotEngineService {
     otpRequestExec: OtpRequestNodeExecutor,
     otpVerifyExec: OtpVerifyNodeExecutor,
     portalActionExec: PortalActionNodeExecutor,
+    flowExec: FlowNodeExecutor,
   ) {
     this.executors = new Map<string, NodeExecutor>();
     this.executors.set(messageExec.nodeType, messageExec);
@@ -63,6 +65,7 @@ export class ChatbotEngineService {
     this.executors.set(otpRequestExec.nodeType, otpRequestExec);
     this.executors.set(otpVerifyExec.nodeType, otpVerifyExec);
     this.executors.set(portalActionExec.nodeType, portalActionExec);
+    this.executors.set(flowExec.nodeType, flowExec);
   }
 
   async processMessage(

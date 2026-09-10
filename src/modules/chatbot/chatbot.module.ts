@@ -18,8 +18,10 @@ import { HandoffAiNodeExecutor } from './engine/node-executors/handoff-ai-node.e
 import { OtpRequestNodeExecutor } from './engine/node-executors/otp-request-node.executor';
 import { OtpVerifyNodeExecutor } from './engine/node-executors/otp-verify-node.executor';
 import { PortalActionNodeExecutor } from './engine/node-executors/portal-action-node.executor';
+import { FlowNodeExecutor } from './engine/node-executors/flow-node.executor';
 import { LlmModule } from '../ai-agents/llm/llm.module';
 import { BotPortalModule } from '../bot-portal/bot-portal.module';
+import { WhatsAppFlowModule } from '../whatsapp-flow/whatsapp-flow.module';
 
 @Module({
   imports: [
@@ -29,6 +31,7 @@ import { BotPortalModule } from '../bot-portal/bot-portal.module';
     ),
     LlmModule,
     BotPortalModule,
+    WhatsAppFlowModule,
   ],
   controllers: [ChatbotFlowsController],
   providers: [
@@ -49,6 +52,7 @@ import { BotPortalModule } from '../bot-portal/bot-portal.module';
     OtpRequestNodeExecutor,
     OtpVerifyNodeExecutor,
     PortalActionNodeExecutor,
+    FlowNodeExecutor,
   ],
   exports: [ChatbotFlowsService, ChatbotFlowsRepository, ChatbotSessionService],
 })

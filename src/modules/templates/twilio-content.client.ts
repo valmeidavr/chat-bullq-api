@@ -163,6 +163,43 @@ export class TwilioContentClient {
     return { sid: data.sid };
   }
 
+  /**
+   * Content do tipo `whatsapp/flows`: abre um WhatsApp Flow (formulário nativo)
+   * criado no Meta Flow Builder. O `flow_token` vai como variável {{1}} pra
+   * amarrar cada envio a uma conversa. Enviável dentro da janela de 24h.
+   */
+  async createFlowTemplate(
+    creds: TwilioCreds,
+    input: {
+      name: string;
+      language: string;
+      body: string;
+      buttonText: string;
+      flowId: string;
+      firstScreen?: string;
+    },
+  ): Promise<{ sid: string }> {
+    const flows: Record<string, unknown> = {
+      body: input.body,
+      button_text: input.buttonText.slice(0, 20),
+      flow_id: String(input.flowId),
+      flow_token: '{{1}}',
+    };
+    if (input.firstScreen) flows.flow_first_page_id = input.firstScreen;
+
+    const { data } = await axios.post(
+      `${TwilioContentClient.BASE}/Content`,
+      {
+        friendly_name: input.name,
+        language: input.language,
+        variables: { '1': 'token' },
+        types: { 'whatsapp/flows': flows },
+      },
+      { auth: this.auth(creds), timeout: 30000 },
+    );
+    return { sid: data.sid };
+  }
+
   async submitApproval(
     creds: TwilioCreds,
     contentSid: string,
