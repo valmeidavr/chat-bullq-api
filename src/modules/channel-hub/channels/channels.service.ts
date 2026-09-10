@@ -426,13 +426,33 @@ export class ChannelsService {
     const { balance, currency } = await this.twilioHttpClient.getBalance(channel);
     const amount = Number(balance) || 0;
 
-    let rate: number | null = null; // USD -> BRL
-    try {
-      const r = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
-      const j: any = await r.json();
-      rate = Number(j?.USDBRL?.bid) || null;
-    } catch {
-      /* câmbio indisponível — mostra só a moeda nativa */
+    // Câmbio USD→BRL: tenta duas fontes públicas (o servidor pode não alcançar
+    // uma delas) e, em último caso, usa USD_BRL_RATE das envs. Sem nenhuma,
+    // mostra só a moeda nativa em vez de mentir um valor.
+    let rate: number | null = null;
+    const fontes: { url: string; pick: (j: any) => number }[] = [
+      { url: 'https://economia.awesomeapi.com.br/last/USD-BRL', pick: (j) => Number(j?.USDBRL?.bid) },
+      { url: 'https://open.er-api.com/v6/latest/USD', pick: (j) => Number(j?.rates?.BRL) },
+    ];
+    for (const f of fontes) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 4000);
+        const r = await fetch(f.url, { signal: ctrl.signal });
+        clearTimeout(t);
+        const v = f.pick(await r.json());
+        if (v > 0) {
+          rate = v;
+          break;
+        }
+      } catch {
+        /* tenta a próxima fonte */
+      }
+    }
+    if (!rate) {
+      const manual = Number(process.env.USD_BRL_RATE);
+      if (manual > 0) rate = manual;
+      else this.logger.warn('Câmbio USD-BRL indisponível — saldo exibido só em USD.');
     }
 
     let usd: number | null = null;
